@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PT XYZ SQL Lab</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --surface: #f4f8f7;
+    --border: #d5e3e2;
+    --text: #1a1a1a;
+    --muted: #5e6663;
+    --accent: #147a78;
+    --accent-ink: #ffffff;
+    --warn: #d97a1e;
+    --error: #b3261e;
+    --code-bg: #24302d;
+    --code-text: #eef2f0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #121816;
+      --surface: #1b2421;
+      --border: #2f3d39;
+      --text: #e8eeec;
+      --muted: #9cada5;
+      --accent: #3fb3ae;
+      --accent-ink: #0b1312;
+      --warn: #f0a050;
+      --error: #ff8a80;
+      --code-bg: #0e1412;
+      --code-text: #eef2f0;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.45 Calibri, "Segoe UI", Arial, sans-serif;
+  }
+  header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 24px;
+    align-items: center;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { margin: 0; font-size: 20px; }
+  header .sub { color: var(--muted); }
+  #status { margin-left: auto; color: var(--muted); font-size: 14px; }
+  #status.ready::before { content: "● "; color: var(--accent); }
+  #status.busy::before { content: "● "; color: var(--warn); }
+  #status.bad::before { content: "● "; color: var(--error); }
+  main {
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr);
+    gap: 16px;
+    padding: 16px 20px 32px;
+  }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  aside section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+  }
+  aside h2 { margin: 0 0 8px; font-size: 15px; }
+  aside p { margin: 0 0 8px; color: var(--muted); font-size: 13px; }
+  button, select {
+    font: inherit;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    padding: 7px 12px;
+    cursor: pointer;
+  }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  button:disabled, select:disabled { opacity: .5; cursor: default; }
+  aside button, aside select { width: 100%; margin-top: 6px; }
+  #tables { font-size: 13px; max-height: 340px; overflow: auto; }
+  #tables details { margin: 2px 0; }
+  #tables summary { cursor: pointer; font-weight: 600; }
+  #tables div { padding-left: 14px; color: var(--muted); font-family: Consolas, monospace; font-size: 12px; }
+  .editor-bar { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+  .editor-bar .hint { color: var(--muted); font-size: 13px; }
+  textarea {
+    width: 100%;
+    min-height: 260px;
+    resize: vertical;
+    background: var(--code-bg);
+    color: var(--code-text);
+    border: 0;
+    border-radius: 10px;
+    padding: 14px 16px;
+    font: 14px/1.5 Consolas, "Courier New", monospace;
+    tab-size: 4;
+    white-space: pre;
+    overflow-wrap: normal;
+    overflow-x: auto;
+  }
+  #log { margin: 14px 0 10px; }
+  .stmt {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 4px 12px;
+    align-items: baseline;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+  }
+  .stmt code { font-family: Consolas, monospace; font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .stmt .metrics { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .stmt .metrics b { color: var(--accent); }
+  .stmt.err { color: var(--error); }
+  .stmt.err .msg { grid-column: 1 / -1; white-space: pre-wrap; font-family: Consolas, monospace; font-size: 12.5px; }
+  .ok-dot { color: var(--accent); }
+  .err-dot { color: var(--error); }
+  #result { overflow: auto; max-height: 60vh; border: 1px solid var(--border); border-radius: 10px; }
+  #result:empty { display: none; }
+  table { border-collapse: collapse; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+  th, td { padding: 5px 10px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
+  th { position: sticky; top: 0; background: var(--surface); }
+  td.num { text-align: right; }
+  pre.plan { margin: 0; padding: 12px; font: 13px/1.0 "Cascadia Mono", Consolas, "Courier New", monospace; white-space: pre; -webkit-font-smoothing: antialiased; }
+  .note { color: var(--muted); font-size: 13px; padding: 8px 10px; }
+  .progress { height: 6px; background: var(--surface); border-radius: 3px; overflow: hidden; margin-top: 8px; display: none; }
+  .progress div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+</style>
+</head>
+<body>
+<header>
+  <h1>PT XYZ SQL Lab</h1>
+  <span class="sub">Track 3 · SQL &amp; Dimensional Modeling · DuckDB in your browser</span>
+  <span id="status" class="busy">Loading DuckDB...</span>
+</header>
+<main>
+  <aside>
+    <section>
+      <h2>1. Training data</h2>
+      <p>Builds the PT XYZ source tables in this browser. Takes about 15 seconds, once.</p>
+      <button id="build" class="primary" disabled>Build PT XYZ data</button>
+      <div class="progress" id="progress"><div></div></div>
+    </section>
+    <section>
+      <h2>2. Catch up</h2>
+      <p>Lost your tables, or starting Day 2? Rebuild everything up to the lab you are starting.</p>
+      <select id="checkpoint" disabled>
+        <option value="">Choose a lab...</option>
+        <option value="catchup/catchup_before_lab3.sql">Before Lab 3</option>
+        <option value="catchup/catchup_before_lab4.sql">Before Lab 4</option>
+        <option value="catchup/catchup_before_case_study.sql">Before Day 1 Case Study</option>
+        <option value="catchup/catchup_before_day2.sql">Before Day 2</option>
+      </select>
+      <button id="catchup" disabled>Run catch-up</button>
+    </section>
+    <section>
+      <h2>Tables</h2>
+      <div id="tables"><p>No tables yet.</p></div>
+    </section>
+    <section>
+      <h2>Start over</h2>
+      <button id="reset" disabled>Delete all tables</button>
+    </section>
+  </aside>
+  <div>
+    <div class="editor-bar">
+      <button id="run" class="primary" disabled>Run</button>
+      <span class="hint">Ctrl+Enter runs everything, or only the selected text.</span>
+    </div>
+    <textarea id="sql" spellcheck="false" aria-label="SQL editor">SELECT COUNT(*) AS row_count FROM source.sales_order_line;</textarea>
+    <div id="log"></div>
+    <div id="result"></div>
+  </div>
+</main>
+
+<script type="module">
+import * as duckdb from "https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.33.1-dev57.0/+esm";
+
+const $ = (id) => document.getElementById(id);
+const statusEl = $("status");
+const ROW_GROUP = 122880;
+const MAX_ROWS = 500;
+let conn = null;
+let busy = false;
+
+function setStatus(text, kind) {
+  statusEl.textContent = text;
+  statusEl.className = kind;
+}
+
+// ---------------------------------------------------------------- SQL split
+// Split a script into statements, respecting quotes and comments.
+function splitSql(script) {
+  const out = [];
+  let cur = "";
+  let i = 0;
+  while (i < script.length) {
+    const c = script[i], n = script[i + 1];
+    if (c === "-" && n === "-") {
+      const end = script.indexOf("\n", i);
+      const stop = end === -1 ? script.length : end;
+      cur += script.slice(i, stop);
+      i = stop;
+    } else if (c === "/" && n === "*") {
+      const end = script.indexOf("*/", i + 2);
+      const stop = end === -1 ? script.length : end + 2;
+      cur += script.slice(i, stop);
+      i = stop;
+    } else if (c === "'" || c === '"') {
+      let j = i + 1;
+      while (j < script.length) {
+        if (script[j] === c && script[j + 1] === c) { j += 2; continue; }
+        if (script[j] === c) break;
+        j++;
+      }
+      cur += script.slice(i, j + 1);
+      i = j + 1;
+    } else if (c === ";") {
+      out.push(cur);
+      cur = "";
+      i++;
+    } else {
+      cur += c;
+      i++;
+    }
+  }
+  out.push(cur);
+  return out
+    .map((s) => s.split("\n").filter((l) => !/^\s*\.\w+/.test(l)).join("\n"))  // drop CLI dot commands
+    .filter((s) => s.replace(/--[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "").trim());
+}
+
+// Read-only queries: safe to run a second time under EXPLAIN ANALYZE to read the profiler.
+const READ_ONLY = /^\s*(SELECT|WITH|FROM|VALUES|TABLE|\()/i;
+
+function stripComments(s) {
+  return s.replace(/--[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "").trim();
+}
+
+// Run one statement; return {table, seconds, rowsScanned}.
+// For queries, seconds and rows scanned come from the DuckDB profiler (engine time, the same
+// number the DuckDB CLI timer and EXPLAIN ANALYZE show). Other statements are only timed.
+async function runProfiled(sql) {
+  const body = stripComments(sql);
+  const t0 = performance.now();
+  const table = await conn.query(sql);
+  const wall = (performance.now() - t0) / 1000;
+  if (!READ_ONLY.test(body)) return { table, seconds: wall, rowsScanned: null };
+  try {
+    const plan = (await conn.query(`EXPLAIN (ANALYZE, FORMAT JSON) ${body}`)).toArray()[0];
+    const p = JSON.parse(plan.explain_value);
+    return { table, seconds: Number(p.latency), rowsScanned: Number(p.cumulative_rows_scanned ?? NaN) };
+  } catch {
+    return { table, seconds: wall, rowsScanned: null };
+  }
+}
+
+// ---------------------------------------------------------------- rendering
+const fmtInt = (n) => n.toLocaleString("en-US");
+function fmtSeconds(s) {
+  if (s === null) return "";
+  return s < 0.001 ? "<0.001 s" : s.toFixed(3) + " s";
+}
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+function fmtValue(v, type) {
+  if (v === null || v === undefined) return "NULL";
+  const t = String(type);
+  if (t.startsWith("Date")) {
+    const d = new Date(typeof v === "number" ? v : Number(v));
+    return d.toISOString().slice(0, 10);
+  }
+  if (t.startsWith("Timestamp")) {
+    const iso = new Date(Number(v)).toISOString().replace("T", " ").slice(0, 19);
+    return iso.endsWith(" 00:00:00") ? iso.slice(0, 10) : iso;
+  }
+  if (typeof v === "number") return Number.isInteger(v) ? fmtInt(v) : v.toLocaleString("en-US", { maximumFractionDigits: 4 });
+  if (typeof v === "bigint") return fmtInt(v);
+  if (typeof v === "object") return JSON.stringify(v, (_, x) => (typeof x === "bigint" ? x.toString() : x));
+  return String(v);
+}
+
+function renderTable(table) {
+  const box = $("result");
+  const fields = table.schema.fields;
+  if (fields.length === 2 && fields[0].name === "explain_key") {
+    const rows = table.toArray();
+    box.innerHTML = rows.map((r) => `<pre class="plan">${esc(r.explain_value)}</pre>`).join("");
+    return;
+  }
+  if (!fields.length) { box.innerHTML = ""; return; }
+  const n = table.numRows;
+  const cols = fields.map((f, i) => ({ name: f.name, type: f.type, vec: table.getChildAt(i) }));
+  const numeric = cols.map((c) => /Int|Float|Decimal/.test(String(c.type)));
+  let html = "<table><thead><tr>" + cols.map((c) => `<th>${esc(c.name)}</th>`).join("") + "</tr></thead><tbody>";
+  for (let r = 0; r < Math.min(n, MAX_ROWS); r++) {
+    html += "<tr>" + cols.map((c, i) => `<td class="${numeric[i] ? "num" : ""}">${esc(fmtValue(c.vec.get(r), c.type))}</td>`).join("") + "</tr>";
+  }
+  html += "</tbody></table>";
+  if (n > MAX_ROWS) html += `<div class="note">Showing ${MAX_ROWS} of ${fmtInt(n)} rows.</div>`;
+  box.innerHTML = html;
+}
+
+function logLine(sql, res, err) {
+  const div = document.createElement("div");
+  const first = stripComments(sql).split("\n")[0].slice(0, 120);
+  if (err) {
+    div.className = "stmt err";
+    div.innerHTML = `<span class="err-dot">✕</span><code>${esc(first)}</code><span></span><div class="msg">${esc(err.message || err)}</div>`;
+  } else {
+    const parts = [];
+    if (res.seconds !== null) parts.push(`<b>${fmtSeconds(res.seconds)}</b>`);
+    if (res.rowsScanned !== null && !Number.isNaN(res.rowsScanned)) {
+      const groups = Math.ceil(res.rowsScanned / ROW_GROUP);
+      parts.push(`${fmtInt(res.rowsScanned)} rows scanned (${fmtInt(groups)} row ${groups === 1 ? "group" : "groups"})`);
+    }
+    if (res.table && res.table.schema.fields.length) parts.push(`${fmtInt(res.table.numRows)} ${res.table.numRows === 1 ? "row" : "rows"} returned`);
+    div.className = "stmt";
+    div.innerHTML = `<span class="ok-dot">✓</span><code>${esc(first)}</code><span class="metrics">${parts.join(" · ")}</span>`;
+  }
+  $("log").appendChild(div);
+}
+
+async function refreshTables() {
+  const rows = (await conn.query(
+    "SELECT schema_name, table_name, estimated_size FROM duckdb_tables() " +
+    "WHERE database_name = current_database() ORDER BY schema_name, table_name")).toArray();
+  const views = (await conn.query(
+    "SELECT schema_name, view_name FROM duckdb_views() WHERE NOT internal AND database_name = current_database()")).toArray();
+  const by = {};
+  for (const r of rows) (by[r.schema_name] ??= []).push(`${r.table_name}  ${fmtInt(Number(r.estimated_size))}`);
+  for (const v of views) (by[v.schema_name] ??= []).push(`${v.view_name}  (view)`);
+  const order = ["source", "bronze", "silver", "gold", "sandbox", "lab"];
+  const schemas = Object.keys(by).sort((a, b) => (order.indexOf(a) + 99) % 99 - (order.indexOf(b) + 99) % 99);
+  $("tables").innerHTML = schemas.length
+    ? schemas.map((s) => `<details ${s === "gold" ? "open" : ""}><summary>${esc(s)}</summary>${by[s].map((t) => `<div>${esc(t)}</div>`).join("")}</details>`).join("")
+    : "<p>No tables yet.</p>";
+  const hasSource = rows.some((r) => r.schema_name === "source");
+  hasLayers = rows.some((r) => ["bronze", "silver", "gold", "sandbox"].includes(r.schema_name));
+  $("build").textContent = hasSource ? "Rebuild PT XYZ data" : "Build PT XYZ data";
+  return hasSource;
+}
+
+// ---------------------------------------------------------------- actions
+function setBusy(on) {
+  busy = on;
+  for (const id of ["run", "build", "catchup", "checkpoint", "reset"]) $(id).disabled = on;
+}
+
+async function runScript(sql, { showLog = true, progress = false } = {}) {
+  const stmts = splitSql(sql);
+  const bar = $("progress"), fill = bar.firstElementChild;
+  if (progress) { bar.style.display = "block"; fill.style.width = "0"; }
+  let last = null, failed = false;
+  for (let k = 0; k < stmts.length; k++) {
+    try {
+      const res = await runProfiled(stmts[k]);
+      if (showLog) logLine(stmts[k], res);
+      if (res.table && res.table.schema.fields.length) last = res.table;
+    } catch (err) {
+      logLine(stmts[k], null, err);
+      failed = true;
+      break;
+    }
+    if (progress) fill.style.width = `${Math.round(((k + 1) / stmts.length) * 100)}%`;
+  }
+  if (progress) setTimeout(() => (bar.style.display = "none"), 800);
+  if (last) renderTable(last); else $("result").innerHTML = "";
+  return !failed;
+}
+
+async function runEditor() {
+  if (busy) return;
+  const ta = $("sql");
+  const sel = ta.value.slice(ta.selectionStart, ta.selectionEnd);
+  $("log").innerHTML = "";
+  setBusy(true);
+  setStatus("Running...", "busy");
+  try {
+    await runScript(sel.trim() ? sel : ta.value);
+  } finally {
+    await refreshTables();
+    setBusy(false);
+    setStatus(readyText(), "ready");
+  }
+}
+
+async function fetchText(path) {
+  const r = await fetch(path, { cache: "no-cache" });
+  if (!r.ok) throw new Error(`Could not load ${path} (${r.status})`);
+  return r.text();
+}
+
+async function buildData() {
+  setBusy(true);
+  $("log").innerHTML = "";
+  setStatus("Building PT XYZ data...", "busy");
+  const t0 = performance.now();
+  let ok = false;
+  try {
+    ok = await runScript(await fetchText("00_setup_source.sql"), { showLog: false, progress: true });
+  } catch (err) { logLine("build", null, err); }
+  await refreshTables();
+  setBusy(false);
+  setStatus(readyText(), "ready");
+  if (ok) $("log").innerHTML = `<div class="note">PT XYZ data built in ${((performance.now() - t0) / 1000).toFixed(1)} s.</div>`;
+  return ok;
+}
+
+async function catchUp() {
+  const path = $("checkpoint").value;
+  if (!path) return;
+  const hasSource = await refreshTables();
+  if (!hasSource && !(await buildData())) return;
+  setBusy(true);
+  $("log").innerHTML = "";
+  setStatus("Catching up...", "busy");
+  let ok = false;
+  try {
+    ok = await runScript(await fetchText(path), { showLog: false, progress: true });
+  } catch (err) { logLine("catch-up", null, err); }
+  await refreshTables();
+  setBusy(false);
+  setStatus(readyText(), "ready");
+  if (ok) $("log").innerHTML = `<div class="note">Done. Your tables now match "${$("checkpoint").selectedOptions[0].text}".</div>`;
+}
+
+async function resetAll() {
+  if (!confirm("Delete every table in this browser, including the PT XYZ data?")) return;
+  setBusy(true);
+  for (const s of ["bronze", "silver", "gold", "sandbox", "source", "lab"]) await conn.query(`DROP SCHEMA IF EXISTS ${s} CASCADE`);
+  await refreshTables();
+  $("log").innerHTML = "";
+  $("result").innerHTML = "";
+  setBusy(false);
+}
+
+function readyText() {
+  return "Ready · tables live in this tab: after closing it, use Catch up";
+}
+
+// Closing the tab loses the tables: ask first once the participant has built layers.
+let hasLayers = false;
+window.addEventListener("beforeunload", (e) => { if (hasLayers) { e.preventDefault(); e.returnValue = ""; } });
+
+// ---------------------------------------------------------------- editor
+const ta = $("sql");
+try { const saved = localStorage.getItem("ptxyz-sql"); if (saved) ta.value = saved; } catch {}
+ta.addEventListener("input", () => { try { localStorage.setItem("ptxyz-sql", ta.value); } catch {} });
+ta.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); runEditor(); }
+  if (e.key === "Tab") {
+    e.preventDefault();
+    const s = ta.selectionStart;
+    ta.setRangeText("    ", s, ta.selectionEnd, "end");
+  }
+});
+$("run").onclick = runEditor;
+$("build").onclick = buildData;
+$("catchup").onclick = catchUp;
+$("reset").onclick = resetAll;
+
+// ---------------------------------------------------------------- start
+try {
+  const bundle = await duckdb.selectBundle(duckdb.getJsDelivrBundles());
+  const workerUrl = URL.createObjectURL(new Blob([`importScripts("${bundle.mainWorker}");`], { type: "text/javascript" }));
+  const db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING), new Worker(workerUrl));
+  await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+  // In memory on purpose: this build reports rows scanned correctly, and its OPFS storage
+  // does not persist yet. A closed tab is fixed with one click on "Run catch-up".
+  await db.open({ query: { castBigIntToDouble: true, castDecimalToDouble: true } });
+  conn = await db.connect();
+  await refreshTables();
+  setBusy(false);
+  setStatus(readyText(), "ready");
+  window.ptxyz = { conn, splitSql };  // for automated tests
+} catch (err) {
+  setStatus("DuckDB could not start: " + (err.message || err), "bad");
+  console.error(err);
+}
+</script>
+</body>
+</html>
