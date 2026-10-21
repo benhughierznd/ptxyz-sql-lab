@@ -3,179 +3,331 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PT XYZ SQL Lab</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Crect width=%2716%27 height=%2716%27 rx=%273%27 fill=%27%23147a78%27/%3E%3C/svg%3E">
+<title>Sampoerna SQL Lab</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Crect x=%271%27 y=%271%27 width=%2714%27 height=%2714%27 rx=%271%27 fill=%27%2397d4ff%27 stroke=%27%23383838%27 stroke-width=%272%27/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #ffffff;
-    --surface: #f4f8f7;
-    --border: #d5e3e2;
-    --text: #1a1a1a;
-    --muted: #5e6663;
-    --accent: #147a78;
-    --accent-ink: #ffffff;
-    --warn: #d97a1e;
-    --error: #b3261e;
-    --code-bg: #24302d;
-    --code-text: #eef2f0;
+    --bg: #f4efea;
+    --panel: #ffffff;
+    --soft: #faf7f4;
+    --ink: #383838;
+    --muted: #6f6a64;
+    --line: #383838;
+    --hair: #e3dcd5;
+    --sky: #97d4ff;
+    --sky-band: #97d4ff;
+    --yellow: #ffde00;
+    --accent: #0b6fb8;
+    --ok: #1a8f5c;
+    --warn: #e07b00;
+    --error: #c4321f;
+    --on-sky: #383838;
+    --mono: "DM Mono", Consolas, "Courier New", monospace;
+    --sans: Inter, "Segoe UI", Arial, sans-serif;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg: #121816;
-      --surface: #1b2421;
-      --border: #2f3d39;
-      --text: #e8eeec;
-      --muted: #9cada5;
-      --accent: #3fb3ae;
-      --accent-ink: #0b1312;
-      --warn: #f0a050;
-      --error: #ff8a80;
-      --code-bg: #0e1412;
-      --code-text: #eef2f0;
+      --bg: #1c1c1c;
+      --panel: #262626;
+      --soft: #2b2b2b;
+      --ink: #ede7e1;
+      --muted: #a9a29b;
+      --line: #ede7e1;
+      --hair: #3a3a3a;
+      --sky-band: #1f3a50;
+      --accent: #97d4ff;
+      --ok: #4cc38a;
+      --warn: #ffb04a;
+      --error: #ff8a7a;
     }
+  }
+  :root[data-theme="dark"] {
+    --bg: #1c1c1c; --panel: #262626; --soft: #2b2b2b; --ink: #ede7e1; --muted: #a9a29b;
+    --line: #ede7e1; --hair: #3a3a3a; --sky-band: #1f3a50; --accent: #97d4ff;
+    --ok: #4cc38a; --warn: #ffb04a; --error: #ff8a7a;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
     background: var(--bg);
-    color: var(--text);
-    font: 15px/1.45 Calibri, "Segoe UI", Arial, sans-serif;
+    color: var(--ink);
+    font: 15px/1.5 var(--sans);
   }
-  header {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px 24px;
-    align-items: center;
-    padding: 14px 20px;
-    border-bottom: 1px solid var(--border);
+
+  /* ---------------------------------------------------------------- header */
+  .strip {
+    background: var(--yellow);
+    color: #383838;
+    border-bottom: 2px solid var(--line);
+    font: 500 12px/1 var(--mono);
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    text-align: center;
+    padding: 9px 16px;
   }
-  header h1 { margin: 0; font-size: 20px; }
-  header .sub { color: var(--muted); }
-  #status { margin-left: auto; color: var(--muted); font-size: 14px; }
-  #status.ready::before { content: "● "; color: var(--accent); }
-  #status.busy::before { content: "● "; color: var(--warn); }
-  #status.bad::before { content: "● "; color: var(--error); }
+  .hero {
+    position: relative;
+    overflow: hidden;
+    background: var(--sky-band);
+    border-bottom: 2px solid var(--line);
+    padding: 34px 24px 30px;
+  }
+  .hero-inner { position: relative; z-index: 1; max-width: 1400px; margin: 0 auto; display: flex; align-items: center; gap: 18px; }
+  .logo { flex: none; width: 52px; height: 52px; }
+  .hero h1 {
+    margin: 0;
+    font: 400 40px/1.05 var(--mono);
+    letter-spacing: -.01em;
+    text-transform: uppercase;
+  }
+  .hero .sub { margin: 6px 0 0; font: 14px/1.4 var(--mono); text-transform: uppercase; letter-spacing: .03em; }
+  .clouds { position: absolute; inset: 0; pointer-events: none; }
+  .clouds svg { position: absolute; fill: var(--panel); stroke: var(--line); stroke-width: 2; overflow: visible; }
+  @media (max-width: 700px) {
+    .hero h1 { font-size: 28px; }
+    .clouds { display: none; }
+  }
+
+  /* ---------------------------------------------------------------- layout */
   main {
+    max-width: 1400px;
+    margin: 0 auto;
     display: grid;
-    grid-template-columns: 260px minmax(0, 1fr);
-    gap: 16px;
-    padding: 16px 20px 32px;
+    grid-template-columns: 340px minmax(0, 1fr);
+    gap: 20px;
+    padding: 24px 24px 40px;
   }
-  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
-  aside section {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 12px 14px;
-    margin-bottom: 12px;
+  @media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); padding: 16px; } }
+  main > * { min-width: 0; }
+  .card {
+    background: var(--panel);
+    border: 2px solid var(--line);
+    border-radius: 2px;
+    margin-bottom: 16px;
   }
-  aside h2 { margin: 0 0 8px; font-size: 15px; }
-  aside p { margin: 0 0 8px; color: var(--muted); font-size: 13px; }
-  button, select {
-    font: inherit;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    background: var(--bg);
-    color: var(--text);
-    padding: 7px 12px;
+  .card-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 2px solid var(--line);
+    font: 500 13px/1.2 var(--mono);
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+  .card-head .num {
+    display: inline-grid;
+    place-items: center;
+    width: 22px; height: 22px;
+    background: var(--yellow);
+    color: #383838;
+    border: 2px solid var(--line);
+    font-size: 12px;
+  }
+  .card-head .right { margin-left: auto; color: var(--muted); text-transform: none; letter-spacing: 0; }
+  .card-body { padding: 12px 14px 14px; }
+  .card-body p { margin: 0 0 10px; color: var(--muted); font-size: 13.5px; }
+
+  /* ---------------------------------------------------------------- controls */
+  .btn, select {
+    font: 500 13px/1 var(--mono);
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--ink);
+    background: var(--panel);
+    border: 2px solid var(--line);
+    border-radius: 2px;
+    padding: 10px 14px;
     cursor: pointer;
+    transition: transform .08s, box-shadow .08s;
   }
-  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
-  button:disabled, select:disabled { opacity: .5; cursor: default; }
-  aside button, aside select { width: 100%; margin-top: 6px; }
-  #tables { font-size: 13px; max-height: 340px; overflow: auto; }
-  #tables details { margin: 2px 0; }
-  #tables summary { cursor: pointer; font-weight: 600; }
-  #tables div { padding-left: 14px; color: var(--muted); font-family: Consolas, monospace; font-size: 12px; }
-  .editor-bar { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
-  .editor-bar .hint { color: var(--muted); font-size: 13px; }
+  select { text-transform: none; letter-spacing: 0; font-family: var(--sans); font-size: 14px; }
+  .btn.primary { background: var(--sky); color: var(--on-sky); }
+  .btn:not(:disabled):hover { transform: translate(-2px, -2px); box-shadow: 2px 2px 0 var(--line); }
+  .btn:not(:disabled):active { transform: none; box-shadow: none; }
+  .btn:disabled, select:disabled { opacity: .45; cursor: default; }
+  .btn:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 3px solid var(--yellow); outline-offset: 1px; }
+  aside .btn, aside select { width: 100%; }
+  aside select + .btn { margin-top: 8px; }
+  .progress { height: 10px; border: 2px solid var(--line); margin-top: 10px; display: none; background: var(--soft); }
+  .progress div { height: 100%; width: 0; background: var(--sky); transition: width .2s; }
+
+  /* ---------------------------------------------------------------- schema browser */
+  #tables { font-size: 13px; max-height: 460px; overflow: auto; padding: 6px 0; }
+  #tables > p { margin: 6px 14px; color: var(--muted); }
+  #tables details > summary { list-style: none; cursor: pointer; display: flex; align-items: baseline; gap: 6px; padding: 3px 14px; }
+  #tables details > summary::-webkit-details-marker { display: none; }
+  #tables details > summary::before { content: "▸"; flex: none; width: 10px; color: var(--muted); font-size: 11px; }
+  #tables details[open] > summary::before { content: "▾"; }
+  #tables summary:hover { background: var(--soft); }
+  .schema > summary { font: 500 13px var(--mono); text-transform: uppercase; letter-spacing: .03em; }
+  .schema > summary .meta { margin-left: auto; font: 12px var(--mono); color: var(--muted); text-transform: none; letter-spacing: 0; }
+  .tbl > summary { padding-left: 30px !important; font-family: var(--mono); }
+  .tbl > summary .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .tbl > summary .meta { margin-left: auto; flex: none; color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  .tbl .tag { font-size: 10.5px; padding: 0 4px; border: 1px solid var(--line); text-transform: uppercase; }
+  .col { display: flex; gap: 8px; padding: 2px 14px 2px 48px; font: 12px var(--mono); }
+  .col .type { margin-left: auto; color: var(--muted); white-space: nowrap; }
+  .col:last-child { padding-bottom: 6px; }
+  .size-note { margin: 0; padding: 8px 14px 10px; border-top: 1px solid var(--hair); color: var(--muted); font-size: 12px; }
+
+  /* ---------------------------------------------------------------- editor window */
+  .window { background: var(--panel); border: 2px solid var(--line); border-radius: 2px; margin-bottom: 20px; }
+  .tabs { display: flex; align-items: stretch; min-height: 46px; border-bottom: 2px solid var(--line); }
+  .tab {
+    display: flex; align-items: center;
+    padding: 0 18px;
+    border-right: 2px solid var(--line);
+    font: 500 13px var(--mono);
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+  .tab.active { background: var(--ink); color: var(--bg); }
+  .tabs .spacer { flex: 1; }
+  .tabs .btn { margin: 6px; }
   textarea {
+    display: block;
     width: 100%;
-    min-height: 260px;
+    min-height: 280px;
     resize: vertical;
-    background: var(--code-bg);
-    color: var(--code-text);
+    background: var(--soft);
+    color: var(--ink);
     border: 0;
-    border-radius: 10px;
-    padding: 14px 16px;
-    font: 14px/1.5 Consolas, "Courier New", monospace;
+    padding: 16px 18px;
+    font: 14px/1.6 var(--mono);
     tab-size: 4;
     white-space: pre;
     overflow-wrap: normal;
     overflow-x: auto;
   }
-  #log { margin: 14px 0 10px; }
+  .statusbar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px;
+    padding: 9px 14px;
+    border-top: 2px solid var(--line);
+    font: 12px var(--mono);
+  }
+  #status { text-transform: uppercase; letter-spacing: .03em; }
+  #status::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 8px; vertical-align: 0; background: var(--muted); }
+  #status.ready::before { background: var(--ok); }
+  #status.busy::before { background: var(--warn); }
+  #status.bad::before { background: var(--error); }
+  .chip { background: var(--yellow); color: #383838; border: 1.5px solid #383838; padding: 2px 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  .statusbar .hint { margin-left: auto; color: var(--muted); }
+
+  /* ---------------------------------------------------------------- output */
+  #log:empty, #result:empty { display: none; }
+  #log { padding: 4px 0; }
   .stmt {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 4px 12px;
     align-items: baseline;
-    padding: 6px 10px;
-    border-bottom: 1px solid var(--border);
-    font-size: 14px;
+    padding: 7px 14px;
+    border-bottom: 1px solid var(--hair);
+    font: 13px var(--mono);
   }
-  .stmt code { font-family: Consolas, monospace; font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .stmt:last-child { border-bottom: 0; }
+  .stmt code { font: inherit; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .stmt .metrics { font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .stmt .metrics b { color: var(--accent); }
+  .stmt .metrics b { color: var(--accent); font-weight: 500; }
+  @media (max-width: 700px) {
+    .stmt { grid-template-columns: auto minmax(0, 1fr); }
+    .stmt .metrics { grid-column: 2; white-space: normal; }
+  }
   .stmt.err { color: var(--error); }
-  .stmt.err .msg { grid-column: 1 / -1; white-space: pre-wrap; font-family: Consolas, monospace; font-size: 12.5px; }
-  .ok-dot { color: var(--accent); }
+  .stmt.err .msg { grid-column: 1 / -1; white-space: pre-wrap; }
+  .ok-dot { color: var(--ok); }
   .err-dot { color: var(--error); }
-  #result { overflow: auto; max-height: 60vh; border: 1px solid var(--border); border-radius: 10px; }
-  #result:empty { display: none; }
-  table { border-collapse: collapse; font-size: 13.5px; font-variant-numeric: tabular-nums; }
-  th, td { padding: 5px 10px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
-  th { position: sticky; top: 0; background: var(--surface); }
+  #result { overflow: auto; max-height: 60vh; border-top: 2px solid var(--line); }
+  #log:empty + #result { border-top: 0; }
+  table { border-collapse: collapse; font: 13px var(--mono); font-variant-numeric: tabular-nums; }
+  th, td { padding: 6px 12px; border-bottom: 1px solid var(--hair); text-align: left; white-space: nowrap; }
+  th { position: sticky; top: 0; background: var(--bg); border-bottom: 2px solid var(--line); font-weight: 500; text-transform: uppercase; letter-spacing: .03em; font-size: 12px; }
   td.num { text-align: right; }
-  pre.plan { margin: 0; padding: 12px; font: 13px/1.0 "Cascadia Mono", Consolas, "Courier New", monospace; white-space: pre; -webkit-font-smoothing: antialiased; }
-  .note { color: var(--muted); font-size: 13px; padding: 8px 10px; }
-  .progress { height: 6px; background: var(--surface); border-radius: 3px; overflow: hidden; margin-top: 8px; display: none; }
-  .progress div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  pre.plan { margin: 0; padding: 14px; font: 13px/1.0 "Cascadia Mono", Consolas, "Courier New", monospace; white-space: pre; -webkit-font-smoothing: antialiased; }
+  .note { color: var(--muted); font: 13px var(--mono); padding: 9px 14px; }
+  .empty-out { padding: 18px 14px; color: var(--muted); font: 13px var(--mono); }
 </style>
 </head>
 <body>
-<header>
-  <h1>PT XYZ SQL Lab</h1>
-  <span class="sub">Track 3 · SQL &amp; Dimensional Modeling · DuckDB in your browser</span>
-  <span id="status" class="busy">Loading DuckDB...</span>
+<div class="strip">Track 3 · SQL &amp; Dimensional Modeling · DuckDB runs in this browser tab, nothing to install</div>
+<header class="hero">
+  <div class="clouds" aria-hidden="true">
+    <svg class="c1" viewBox="0 0 170 80" style="width:230px;right:4%;top:-18px"><path d="M24 74a22 22 0 0 1 2-44a30 30 0 0 1 54-14a26 26 0 0 1 44 6a24 24 0 0 1 24 52z"/></svg>
+    <svg class="c2" viewBox="0 0 170 80" style="width:150px;right:24%;bottom:-34px"><path d="M24 74a22 22 0 0 1 2-44a30 30 0 0 1 54-14a26 26 0 0 1 44 6a24 24 0 0 1 24 52z"/></svg>
+    <svg class="c3" viewBox="0 0 170 80" style="width:120px;right:40%;top:-30px"><path d="M24 74a22 22 0 0 1 2-44a30 30 0 0 1 54-14a26 26 0 0 1 44 6a24 24 0 0 1 24 52z"/></svg>
+  </div>
+  <div class="hero-inner">
+    <svg class="logo" viewBox="0 0 52 52" aria-hidden="true">
+      <rect x="1" y="1" width="50" height="50" rx="2" fill="#ffde00" stroke="#383838" stroke-width="2"/>
+      <ellipse cx="26" cy="15" rx="14" ry="5" fill="#fff" stroke="#383838" stroke-width="2"/>
+      <path d="M12 15v22c0 2.8 6.3 5 14 5s14-2.2 14-5V15" fill="none" stroke="#383838" stroke-width="2"/>
+      <path d="M12 26c0 2.8 6.3 5 14 5s14-2.2 14-5" fill="none" stroke="#383838" stroke-width="2"/>
+    </svg>
+    <div>
+      <h1>Sampoerna SQL Lab</h1>
+      <p class="sub">Write SQL · read the plan · measure the gain</p>
+    </div>
+  </div>
 </header>
 <main>
   <aside>
-    <section>
-      <h2>1. Training data</h2>
-      <p>Builds the PT XYZ source tables in this browser. Takes about 15 seconds, once.</p>
-      <button id="build" class="primary" disabled>Build PT XYZ data</button>
-      <div class="progress" id="progress"><div></div></div>
+    <section class="card">
+      <div class="card-head"><span class="num">1</span>Training data</div>
+      <div class="card-body">
+        <p>Builds the PT XYZ source tables in this browser. Takes about 15 seconds, once.</p>
+        <button id="build" class="btn primary" disabled>Build PT XYZ data</button>
+        <div class="progress" id="progress"><div></div></div>
+      </div>
     </section>
-    <section>
-      <h2>2. Catch up</h2>
-      <p>Lost your tables, or starting Day 2? Rebuild everything up to the lab you are starting.</p>
-      <select id="checkpoint" disabled>
-        <option value="">Choose a lab...</option>
-        <option value="catchup/catchup_before_lab3.sql">Before Lab 3</option>
-        <option value="catchup/catchup_before_lab4.sql">Before Lab 4</option>
-        <option value="catchup/catchup_before_case_study.sql">Before Day 1 Case Study</option>
-        <option value="catchup/catchup_before_day2.sql">Before Day 2</option>
-      </select>
-      <button id="catchup" disabled>Run catch-up</button>
+    <section class="card">
+      <div class="card-head"><span class="num">2</span>Catch up</div>
+      <div class="card-body">
+        <p>Lost your tables, or starting Day 2? Rebuild everything up to the lab you are starting.</p>
+        <select id="checkpoint" disabled aria-label="Lab to catch up to">
+          <option value="">Choose a lab...</option>
+          <option value="catchup/catchup_before_lab3.sql">Before Lab 3</option>
+          <option value="catchup/catchup_before_lab4.sql">Before Lab 4</option>
+          <option value="catchup/catchup_before_case_study.sql">Before Day 1 Case Study</option>
+          <option value="catchup/catchup_before_day2.sql">Before Day 2</option>
+        </select>
+        <button id="catchup" class="btn" disabled>Run catch-up</button>
+      </div>
     </section>
-    <section>
-      <h2>Tables</h2>
+    <section class="card">
+      <div class="card-head">Schema<span class="right" id="mem"></span></div>
       <div id="tables"><p>No tables yet.</p></div>
     </section>
-    <section>
-      <h2>Start over</h2>
-      <button id="reset" disabled>Delete all tables</button>
+    <section class="card">
+      <div class="card-head">Start over</div>
+      <div class="card-body">
+        <button id="reset" class="btn" disabled>Delete all tables</button>
+      </div>
     </section>
   </aside>
   <div>
-    <div class="editor-bar">
-      <button id="run" class="primary" disabled>Run</button>
-      <span class="hint">Ctrl+Enter runs everything, or only the selected text.</span>
-    </div>
-    <textarea id="sql" spellcheck="false" aria-label="SQL editor">SELECT COUNT(*) AS row_count FROM source.sales_order_line;</textarea>
-    <div id="log"></div>
-    <div id="result"></div>
+    <section class="window">
+      <div class="tabs">
+        <span class="tab active">SQL</span>
+        <span class="spacer"></span>
+        <button id="run" class="btn primary" disabled>Run ▸</button>
+      </div>
+      <textarea id="sql" spellcheck="false" aria-label="SQL editor">SELECT COUNT(*) AS row_count FROM source.sales_order_line;</textarea>
+      <div class="statusbar">
+        <span id="status" class="busy">Loading DuckDB...</span>
+        <span class="chip">DuckDB-WASM</span>
+        <span class="hint">Ctrl+Enter runs everything, or only the selected text</span>
+      </div>
+    </section>
+    <section class="window">
+      <div class="tabs"><span class="tab active">Results</span></div>
+      <div id="log"></div>
+      <div id="result"></div>
+      <div class="empty-out" id="empty-out">Run a query to see seconds, rows scanned and the result here.</div>
+    </section>
   </div>
 </main>
 
@@ -267,6 +419,13 @@ function fmtSeconds(s) {
   if (s === null) return "";
   return s < 0.001 ? "<0.001 s" : s.toFixed(3) + " s";
 }
+function fmtBytes(b) {
+  if (b < 1024) return `${b} B`;
+  const units = ["KB", "MB", "GB"];
+  let v = b / 1024, u = 0;
+  while (v >= 1024 && u < units.length - 1) { v /= 1024; u++; }
+  return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${units[u]}`;
+}
 function esc(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
@@ -308,6 +467,10 @@ function renderTable(table) {
   box.innerHTML = html;
 }
 
+function syncEmpty() {
+  $("empty-out").style.display = $("log").innerHTML || $("result").innerHTML ? "none" : "";
+}
+
 function logLine(sql, res, err) {
   const div = document.createElement("div");
   const first = stripComments(sql).split("\n")[0].slice(0, 120);
@@ -326,24 +489,96 @@ function logLine(sql, res, err) {
     div.innerHTML = `<span class="ok-dot">✓</span><code>${esc(first)}</code><span class="metrics">${parts.join(" · ")}</span>`;
   }
   $("log").appendChild(div);
+  syncEmpty();
 }
 
+// ---------------------------------------------------------------- schema browser
+// Table size = rows x row width, the uncompressed size of the data. DuckDB keeps no per-table
+// byte count for in-memory tables, so fixed-width types use their storage width and text
+// columns use the average length of the first 2,048 rows.
+const FIXED = {
+  BOOLEAN: 1, TINYINT: 1, UTINYINT: 1, SMALLINT: 2, USMALLINT: 2, INTEGER: 4, UINTEGER: 4, DATE: 4, FLOAT: 4,
+  BIGINT: 8, UBIGINT: 8, DOUBLE: 8, TIME: 8, TIMESTAMP: 8, "TIMESTAMP WITH TIME ZONE": 8,
+  HUGEINT: 16, UHUGEINT: 16, UUID: 16, INTERVAL: 16,
+};
+function typeBytes(t) {
+  if (t in FIXED) return FIXED[t];
+  const d = /^DECIMAL\((\d+)/.exec(t);
+  if (d) { const p = +d[1]; return p <= 4 ? 2 : p <= 9 ? 4 : p <= 18 ? 8 : 16; }
+  return null;
+}
+const ident = (s) => `"${String(s).replace(/"/g, '""')}"`;
+const sizeCache = new Map();
+async function tableBytes(schema, table, rows, cols) {
+  const key = `${schema}.${table}#${rows}#${cols.length}`;
+  if (sizeCache.has(key)) return sizeCache.get(key);
+  let width = 0;
+  const varying = [];
+  for (const c of cols) { const b = typeBytes(c.type); if (b === null) varying.push(c.name); else width += b; }
+  if (varying.length && rows > 0) {
+    const avgs = varying.map((c, i) => `avg(strlen(CAST(${ident(c)} AS VARCHAR))) AS a${i}`).join(", ");
+    const r = (await conn.query(`SELECT ${avgs} FROM (SELECT * FROM ${ident(schema)}.${ident(table)} LIMIT 2048)`)).toArray()[0];
+    // DuckDB stores strings up to 12 bytes inline in a 16-byte slot, longer ones in a separate heap.
+    varying.forEach((_, i) => { const len = Number(r[`a${i}`]) || 0; width += 16 + (len > 12 ? len : 0); });
+  }
+  const bytes = rows * width;
+  sizeCache.set(key, bytes);
+  return bytes;
+}
+
+const openNodes = new Set(["s:gold"]);
+const LAYER_ORDER = ["source", "bronze", "silver", "gold", "sandbox", "lab"];
+
 async function refreshTables() {
-  const rows = (await conn.query(
-    "SELECT schema_name, table_name, estimated_size FROM duckdb_tables() " +
-    "WHERE database_name = current_database() ORDER BY schema_name, table_name")).toArray();
+  const db = "database_name = current_database()";
+  const tables = (await conn.query(
+    `SELECT schema_name, table_name, estimated_size FROM duckdb_tables() WHERE ${db}`)).toArray();
   const views = (await conn.query(
-    "SELECT schema_name, view_name FROM duckdb_views() WHERE NOT internal AND database_name = current_database()")).toArray();
+    `SELECT schema_name, view_name FROM duckdb_views() WHERE NOT internal AND ${db}`)).toArray();
+  const columns = (await conn.query(
+    `SELECT schema_name, table_name, column_name, data_type FROM duckdb_columns() WHERE ${db} ` +
+    "ORDER BY schema_name, table_name, column_index")).toArray();
+  const colsOf = {};
+  for (const c of columns) (colsOf[`${c.schema_name}.${c.table_name}`] ??= []).push({ name: c.column_name, type: c.data_type });
+
   const by = {};
-  for (const r of rows) (by[r.schema_name] ??= []).push(`${r.table_name}  ${fmtInt(Number(r.estimated_size))}`);
-  for (const v of views) (by[v.schema_name] ??= []).push(`${v.view_name}  (view)`);
-  const order = ["source", "bronze", "silver", "gold", "sandbox", "lab"];
-  const schemas = Object.keys(by).sort((a, b) => (order.indexOf(a) + 99) % 99 - (order.indexOf(b) + 99) % 99);
-  $("tables").innerHTML = schemas.length
-    ? schemas.map((s) => `<details ${s === "gold" ? "open" : ""}><summary>${esc(s)}</summary>${by[s].map((t) => `<div>${esc(t)}</div>`).join("")}</details>`).join("")
+  for (const t of tables) {
+    const cols = colsOf[`${t.schema_name}.${t.table_name}`] ?? [];
+    const rows = Number(t.estimated_size);
+    let bytes = null;
+    try { bytes = await tableBytes(t.schema_name, t.table_name, rows, cols); } catch {}
+    (by[t.schema_name] ??= []).push({ name: t.table_name, rows, bytes, cols });
+  }
+  for (const v of views) (by[v.schema_name] ??= []).push({ name: v.view_name, view: true, cols: colsOf[`${v.schema_name}.${v.view_name}`] ?? [] });
+
+  const rank = (s) => { const i = LAYER_ORDER.indexOf(s); return i === -1 ? 99 : i; };
+  const schemas = Object.keys(by).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+  let total = 0;
+  $("tables").innerHTML = schemas.length ? schemas.map((s) => {
+    const items = by[s].sort((a, b) => a.name.localeCompare(b.name));
+    const bytes = items.reduce((n, t) => n + (t.bytes ?? 0), 0);
+    total += bytes;
+    const inner = items.map((t) => {
+      const meta = t.view
+        ? `<span class="tag">view</span>`
+        : `${fmtInt(t.rows)} rows${t.bytes === null ? "" : ` · ${fmtBytes(t.bytes)}`}`;
+      const cols = t.cols.map((c) => `<div class="col"><span>${esc(c.name)}</span><span class="type">${esc(c.type)}</span></div>`).join("");
+      const key = `t:${s}.${t.name}`;
+      return `<details class="tbl" data-key="${esc(key)}" ${openNodes.has(key) ? "open" : ""}>` +
+        `<summary title="${esc(`${s}.${t.name}`)}"><span class="name">${esc(t.name)}</span><span class="meta">${meta}</span></summary>${cols}</details>`;
+    }).join("");
+    const key = `s:${s}`;
+    return `<details class="schema" data-key="${esc(key)}" ${openNodes.has(key) ? "open" : ""}>` +
+      `<summary>${esc(s)}<span class="meta">${items.length} ${items.length === 1 ? "object" : "objects"} · ${fmtBytes(bytes)}</span></summary>${inner}</details>`;
+  }).join("") + `<p class="size-note">Size = rows × row width, uncompressed. DuckDB compresses most columns, so real memory use is lower.</p>`
     : "<p>No tables yet.</p>";
-  const hasSource = rows.some((r) => r.schema_name === "source");
-  hasLayers = rows.some((r) => ["bronze", "silver", "gold", "sandbox"].includes(r.schema_name));
+  for (const d of $("tables").querySelectorAll("details")) {
+    d.addEventListener("toggle", () => (d.open ? openNodes.add(d.dataset.key) : openNodes.delete(d.dataset.key)));
+  }
+  $("mem").textContent = schemas.length ? `≈ ${fmtBytes(total)}` : "";
+
+  const hasSource = tables.some((r) => r.schema_name === "source");
+  hasLayers = tables.some((r) => ["bronze", "silver", "gold", "sandbox"].includes(r.schema_name));
   $("build").textContent = hasSource ? "Rebuild PT XYZ data" : "Build PT XYZ data";
   return hasSource;
 }
@@ -373,6 +608,7 @@ async function runScript(sql, { showLog = true, progress = false } = {}) {
   }
   if (progress) setTimeout(() => (bar.style.display = "none"), 800);
   if (last) renderTable(last); else $("result").innerHTML = "";
+  syncEmpty();
   return !failed;
 }
 
@@ -398,6 +634,11 @@ async function fetchText(path) {
   return r.text();
 }
 
+function showNote(text) {
+  $("log").innerHTML = `<div class="note">${esc(text)}</div>`;
+  syncEmpty();
+}
+
 async function buildData() {
   setBusy(true);
   $("log").innerHTML = "";
@@ -410,7 +651,7 @@ async function buildData() {
   await refreshTables();
   setBusy(false);
   setStatus(readyText(), "ready");
-  if (ok) $("log").innerHTML = `<div class="note">PT XYZ data built in ${((performance.now() - t0) / 1000).toFixed(1)} s.</div>`;
+  if (ok) showNote(`PT XYZ data built in ${((performance.now() - t0) / 1000).toFixed(1)} s.`);
   return ok;
 }
 
@@ -429,7 +670,7 @@ async function catchUp() {
   await refreshTables();
   setBusy(false);
   setStatus(readyText(), "ready");
-  if (ok) $("log").innerHTML = `<div class="note">Done. Your tables now match "${$("checkpoint").selectedOptions[0].text}".</div>`;
+  if (ok) showNote(`Done. Your tables now match "${$("checkpoint").selectedOptions[0].text}".`);
 }
 
 async function resetAll() {
@@ -439,6 +680,7 @@ async function resetAll() {
   await refreshTables();
   $("log").innerHTML = "";
   $("result").innerHTML = "";
+  syncEmpty();
   setBusy(false);
 }
 

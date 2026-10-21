@@ -1,4 +1,4 @@
-# PT XYZ SQL Lab
+# Sampoerna SQL Lab
 
 A browser-based SQL lab for a two-day training on SQL and dimensional modeling.
 It runs [DuckDB](https://duckdb.org) inside the browser tab with DuckDB-WASM: nothing to install, no login, no server, and no data leaves the laptop.
@@ -13,6 +13,8 @@ Open it: **https://benhughierznd.github.io/ptxyz-sql-lab/**
    Select part of the text to run only the selection.
 4. Under the editor, every statement gets one line: seconds, rows scanned, row groups scanned, rows returned.
    Seconds and rows scanned come from the DuckDB profiler (the same numbers `EXPLAIN ANALYZE` shows).
+5. The **Schema** panel lists every schema, table and view, with columns, data types, row count and an estimated uncompressed size.
+   You can create your own tables too, for example in the `sandbox` schema.
 
 The tables live in the browser tab.
 If you close the tab, or start a new day, open the page again and use **Catch up** to rebuild every table up to the lab you are starting.
