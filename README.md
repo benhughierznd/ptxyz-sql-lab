@@ -13,7 +13,11 @@ Open it: **https://benhughierznd.github.io/ptxyz-sql-lab/**
    Select part of the text to run only the selection.
 4. Under the editor, every statement gets one line: seconds, rows scanned, row groups scanned, rows returned.
    Seconds and rows scanned come from the DuckDB profiler (the same numbers `EXPLAIN ANALYZE` shows).
-5. The **Schema** panel lists every schema, table and view, with columns, data types, row count and an estimated uncompressed size.
+5. When the last query joins tables, the result gets an **ERD** tab next to **Table**.
+   It draws the tables of that query with their primary and foreign keys, and each join with its type and its 1 or many ends.
+   Click a table in the diagram to read what it is.
+6. The **Schema** panel lists every schema, table and view, with columns, data types, row count and an estimated uncompressed size.
+   Open a table to see its description and its PK and FK columns.
    You can create your own tables too, for example in the `sandbox` schema.
 
 The tables live in the browser tab.
@@ -31,6 +35,7 @@ All names and numbers are synthetic.
 | `index.html` | The lab page |
 | `00_setup_source.sql` | Builds the `source` schema (operational tables) and the two `lab` tables used for the pruning exercise |
 | `catchup/*.sql` | Rebuilds bronze, silver and gold up to a given lab |
+| `table_docs.json` | Description, primary key and foreign keys of every training table, shown in the Schema panel and the ERD |
 
 The same scripts also run in the DuckDB CLI: `duckdb training.duckdb -f 00_setup_source.sql`.
 

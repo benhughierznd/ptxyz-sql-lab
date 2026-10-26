@@ -1,0 +1,291 @@
+{
+  "bronze.area": {
+    "comment": "Raw copy of source.area with _loaded_at and _source load metadata added, same grain: one row per sales area.",
+    "pk": [
+      "ar_area_id"
+    ],
+    "fk": {
+      "ar_region_id": "bronze.region.rg_region_id"
+    }
+  },
+  "bronze.distributor": {
+    "comment": "Raw copy of source.distributor with _loaded_at and _source load metadata added, same grain: one row per distributor.",
+    "pk": [
+      "dt_distributor_id"
+    ],
+    "fk": {
+      "dt_area_id": "bronze.area.ar_area_id"
+    }
+  },
+  "bronze.distributor_stock": {
+    "comment": "Raw copy of source.distributor_stock with _loaded_at and _source load metadata added, same grain: one row per SKU per distributor.",
+    "pk": [
+      "st_sku_id",
+      "st_distributor_id"
+    ],
+    "fk": {
+      "st_sku_id": "bronze.sku.sk_sku_id",
+      "st_distributor_id": "bronze.distributor.dt_distributor_id"
+    }
+  },
+  "bronze.outlet": {
+    "comment": "Raw copy of source.outlet with _loaded_at and _source load metadata added, same grain: one row per retail outlet.",
+    "pk": [
+      "ot_outlet_id"
+    ],
+    "fk": {
+      "ot_area_id": "bronze.area.ar_area_id"
+    }
+  },
+  "bronze.region": {
+    "comment": "Raw copy of source.region with _loaded_at and _source load metadata added, same grain: one row per sales region.",
+    "pk": [
+      "rg_region_id"
+    ]
+  },
+  "bronze.sales_order": {
+    "comment": "Raw copy of source.sales_order with _loaded_at and _source load metadata added, same grain: one row per sales order header.",
+    "pk": [
+      "so_order_id"
+    ],
+    "fk": {
+      "so_outlet_id": "bronze.outlet.ot_outlet_id"
+    }
+  },
+  "bronze.sales_order_line": {
+    "comment": "Raw copy of source.sales_order_line with _loaded_at and _source load metadata added, same grain: one row per order line.",
+    "pk": [
+      "sl_order_id",
+      "sl_line_no"
+    ],
+    "fk": {
+      "sl_order_id": "bronze.sales_order.so_order_id",
+      "sl_sku_id": "bronze.sku.sk_sku_id",
+      "sl_distributor_id": "bronze.distributor.dt_distributor_id"
+    }
+  },
+  "bronze.sku": {
+    "comment": "Raw copy of source.sku with _loaded_at and _source load metadata added, same grain: one row per SKU.",
+    "pk": [
+      "sk_sku_id"
+    ]
+  },
+  "gold.agg_sales_outlet_region_month": {
+    "comment": "Gold aggregate for the dashboard: one row per outlet region per month with net sales and number of sales lines.",
+    "pk": [
+      "region",
+      "month_start"
+    ]
+  },
+  "gold.dim_distributor": {
+    "comment": "Gold distributor dimension, SCD Type 2: one row per distributor version with valid_from, valid_to and is_current. Distributor 42 has two versions after its move to MAKASSAR, so distributor_id alone is not unique.",
+    "pk": [
+      "distributor_key"
+    ]
+  },
+  "gold.dim_outlet": {
+    "comment": "Gold outlet dimension: one row per outlet with surrogate key outlet_key, channel, area and region. Added in the Day 1 Case Study.",
+    "pk": [
+      "outlet_key"
+    ]
+  },
+  "gold.dim_sku": {
+    "comment": "Gold SKU dimension: one row per SKU with surrogate key sku_key, brand and segment. Segment is added in Lab 4 as a conformed-dimension extension.",
+    "pk": [
+      "sku_key"
+    ]
+  },
+  "gold.fact_order_fulfillment": {
+    "comment": "Gold accumulating snapshot fact: one row per order line with order, ship, promised and delivery dates, days from order to ship and a late-delivery flag.",
+    "pk": [
+      "order_id",
+      "line_no"
+    ]
+  },
+  "gold.fact_sales_line": {
+    "comment": "Gold transaction fact: one row per order line with dimension keys, quantity, gross, discount and net amount. The center of the star schema.",
+    "pk": [
+      "order_id",
+      "line_no"
+    ],
+    "fk": {
+      "outlet_key": "gold.dim_outlet.outlet_key",
+      "sku_key": "gold.dim_sku.sku_key",
+      "distributor_key": "gold.dim_distributor.distributor_key"
+    }
+  },
+  "gold.fact_stock_snapshot": {
+    "comment": "Gold periodic snapshot fact: one row per SKU per distributor per snapshot date with stock in slof and unit cost. Stock is semi-additive, so never sum it across dates.",
+    "pk": [
+      "snapshot_date",
+      "sku_key",
+      "distributor_key"
+    ],
+    "fk": {
+      "sku_key": "gold.dim_sku.sku_key",
+      "distributor_key": "gold.dim_distributor.distributor_key"
+    }
+  },
+  "lab.sales_line_by_date": {
+    "comment": "Same 6 million rows as lab.sales_line_by_sku, but loaded in ship date order so date filters can skip row groups in the Lab 7 pruning exercise.",
+    "pk": [
+      "sl_line_id"
+    ]
+  },
+  "lab.sales_line_by_sku": {
+    "comment": "One row per synthetic sales line (6 million rows), loaded in SKU order. Used in Lab 7 to compare row-group pruning against lab.sales_line_by_date.",
+    "pk": [
+      "sl_line_id"
+    ]
+  },
+  "sandbox.dim_brand": {
+    "comment": "Exercise table for the star vs snowflake comparison: one row per brand with a surrogate brand_key.",
+    "pk": [
+      "brand_key"
+    ]
+  },
+  "sandbox.dim_sku_sf": {
+    "comment": "Snowflaked SKU dimension for the star vs snowflake comparison: one row per SKU, pointing to sandbox.dim_brand instead of holding the brand name.",
+    "pk": [
+      "sku_key"
+    ],
+    "fk": {
+      "sku_key": "gold.dim_sku.sku_key",
+      "brand_key": "sandbox.dim_brand.brand_key"
+    }
+  },
+  "sandbox.flat_sales_report": {
+    "comment": "View for the Day 1 Case Study: the commercial team's flat report, one row per order line with outlet, area, region, SKU and distributor attributes joined directly from bronze. The starting point to move into the medallion layers.",
+    "pk": [
+      "sl_order_id",
+      "sl_line_no"
+    ]
+  },
+  "sandbox.sales_mixed": {
+    "comment": "Intentionally broken exercise table for January 2025 sales: order-line rows mixed with daily total rows (order id and line NULL), so summing amount double counts. Mixed grain, so it has no primary key."
+  },
+  "sandbox.stock_two_days": {
+    "comment": "Exercise table: gold.fact_stock_snapshot copied for a second (previous) day, one row per SKU per distributor per date. Used to show why summing stock across days is wrong.",
+    "pk": [
+      "snapshot_date",
+      "sku_key",
+      "distributor_key"
+    ],
+    "fk": {
+      "sku_key": "gold.dim_sku.sku_key",
+      "distributor_key": "gold.dim_distributor.distributor_key"
+    }
+  },
+  "silver.distributor": {
+    "comment": "One row per distributor, cleaned from bronze: clean column names with area and region names resolved.",
+    "pk": [
+      "distributor_id"
+    ]
+  },
+  "silver.distributor_stock": {
+    "comment": "One row per SKU per distributor with current stock in slof and unit cost, cleaned from bronze.",
+    "pk": [
+      "sku_id",
+      "distributor_id"
+    ],
+    "fk": {
+      "sku_id": "silver.sku.sku_id",
+      "distributor_id": "silver.distributor.distributor_id"
+    }
+  },
+  "silver.outlet": {
+    "comment": "One row per outlet, cleaned from bronze: clean column names with area and region names resolved.",
+    "pk": [
+      "outlet_id"
+    ]
+  },
+  "silver.sales_line": {
+    "comment": "One row per order line, joined to its order header, deduplicated to the latest load, with net_amount (after discount, before excise and VAT). Source for the gold facts.",
+    "pk": [
+      "order_id",
+      "line_no"
+    ],
+    "fk": {
+      "outlet_id": "silver.outlet.outlet_id",
+      "sku_id": "silver.sku.sku_id",
+      "distributor_id": "silver.distributor.distributor_id"
+    }
+  },
+  "silver.sku": {
+    "comment": "One row per SKU, cleaned from bronze: SKU name, brand and segment with clean column names.",
+    "pk": [
+      "sku_id"
+    ]
+  },
+  "source.area": {
+    "comment": "One row per sales area (25 areas, 5 per region, e.g. MEDAN, SURABAYA). Links outlets and distributors to a region.",
+    "pk": [
+      "ar_area_id"
+    ],
+    "fk": {
+      "ar_region_id": "source.region.rg_region_id"
+    }
+  },
+  "source.distributor": {
+    "comment": "One row per distributor (1,000 distributors, 40 per area) that ships PT XYZ cigarettes to outlets.",
+    "pk": [
+      "dt_distributor_id"
+    ],
+    "fk": {
+      "dt_area_id": "source.area.ar_area_id"
+    }
+  },
+  "source.distributor_stock": {
+    "comment": "One row per SKU per distributor: the current stock in slof and unit cost. Each SKU is held by 4 distributors (8,000 rows).",
+    "pk": [
+      "st_sku_id",
+      "st_distributor_id"
+    ],
+    "fk": {
+      "st_sku_id": "source.sku.sk_sku_id",
+      "st_distributor_id": "source.distributor.dt_distributor_id"
+    }
+  },
+  "source.outlet": {
+    "comment": "One row per retail outlet (warung, grosir, minimarket, HORECA, koperasi) that buys PT XYZ products, about 50,000 outlets.",
+    "pk": [
+      "ot_outlet_id"
+    ],
+    "fk": {
+      "ot_area_id": "source.area.ar_area_id"
+    }
+  },
+  "source.region": {
+    "comment": "One row per sales region (5 regions, e.g. SUMATERA, JAWA TIMUR). Top of the geography hierarchy in the PT XYZ operational data.",
+    "pk": [
+      "rg_region_id"
+    ]
+  },
+  "source.sales_order": {
+    "comment": "One row per sales order header: outlet, order date, status, order source and the total the ordering system calculated.",
+    "pk": [
+      "so_order_id"
+    ],
+    "fk": {
+      "so_outlet_id": "source.outlet.ot_outlet_id"
+    }
+  },
+  "source.sales_order_line": {
+    "comment": "One row per order line (1 to 7 lines per order): SKU, distributor, quantity in slof, gross amount, discount, excise and ship, promised and delivery dates. The main transaction table of the course.",
+    "pk": [
+      "sl_order_id",
+      "sl_line_no"
+    ],
+    "fk": {
+      "sl_order_id": "source.sales_order.so_order_id",
+      "sl_sku_id": "source.sku.sk_sku_id",
+      "sl_distributor_id": "source.distributor.dt_distributor_id"
+    }
+  },
+  "source.sku": {
+    "comment": "One row per SKU (2,000 products across 20 brands and the SKT, SKM and SPM segments), with pack size and price per pack in IDR.",
+    "pk": [
+      "sk_sku_id"
+    ]
+  }
+}

@@ -50,6 +50,7 @@
     --ok: #4cc38a; --warn: #ffb04a; --error: #ff8a7a;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body {
     margin: 0;
     background: var(--bg);
@@ -173,6 +174,7 @@
   .col { display: flex; gap: 8px; padding: 2px 14px 2px 48px; font: 12px var(--mono); }
   .col .type { margin-left: auto; color: var(--muted); white-space: nowrap; }
   .col:last-child { padding-bottom: 6px; }
+  .tbl-note { padding: 2px 14px 4px 48px; color: var(--muted); font-size: 12px; line-height: 1.4; }
   .size-note { margin: 0; padding: 8px 14px 10px; border-top: 1px solid var(--hair); color: var(--muted); font-size: 12px; }
 
   /* ---------------------------------------------------------------- editor window */
@@ -187,6 +189,10 @@
     text-transform: uppercase;
   }
   .tab.active { background: var(--ink); color: var(--bg); }
+  button.tab { background: none; color: inherit; border: 0; border-right: 2px solid var(--line); cursor: pointer; }
+  button.tab.active { background: var(--ink); color: var(--bg); }
+  button.tab:not(.active):hover { background: var(--soft); }
+  button.tab:focus-visible { outline: 3px solid var(--yellow); outline-offset: -3px; }
   .tabs .spacer { flex: 1; }
   .tabs .btn { margin: 6px; }
   textarea {
@@ -251,6 +257,16 @@
   pre.plan { margin: 0; padding: 14px; font: 13px/1.0 "Cascadia Mono", Consolas, "Courier New", monospace; white-space: pre; -webkit-font-smoothing: antialiased; }
   .note { color: var(--muted); font: 13px var(--mono); padding: 9px 14px; }
   .empty-out { padding: 18px 14px; color: var(--muted); font: 13px var(--mono); }
+  #erd { border-top: 2px solid var(--line); }
+  #log:empty + #result + #erd { border-top: 0; }
+  .erd-canvas { overflow: auto; max-height: 60vh; padding: 16px; }
+  .erd-canvas svg { display: block; margin: 0 auto; }
+  .erd-canvas g.node { cursor: pointer; }
+  .erd-canvas .labelBkg, .erd-canvas .edgeLabel p { background: var(--panel) !important; opacity: 1 !important; }
+  .erd-info { border-top: 1px solid var(--hair); padding: 10px 14px 12px; font: 13px/1.5 var(--mono); color: var(--muted); }
+  .erd-info b { color: var(--ink); font-weight: 500; }
+  .erd-info p { margin: 4px 0; font-family: var(--sans); font-size: 13.5px; color: var(--ink); }
+  .erd-info .tag { font-size: 10.5px; padding: 0 4px; border: 1px solid var(--line); text-transform: uppercase; margin-left: 6px; }
 </style>
 </head>
 <body>
@@ -319,9 +335,13 @@
       </div>
     </section>
     <section class="window">
-      <div class="tabs"><span class="tab active">Results</span></div>
+      <div class="tabs">
+        <button class="tab active" id="tab-table" data-view="table">Table</button>
+        <button class="tab" id="tab-erd" data-view="erd" hidden>ERD</button>
+      </div>
       <div id="log"></div>
       <div id="result"></div>
+      <div id="erd" hidden></div>
       <div class="empty-out" id="empty-out">Run a query to see seconds, rows scanned and the result here.</div>
     </section>
   </div>
@@ -336,6 +356,9 @@ const ROW_GROUP = 122880;
 const MAX_ROWS = 500;
 let conn = null;
 let busy = false;
+let catalog = {};        // "schema.table" -> [{name, type}]
+let tableComments = {};  // "schema.table" -> COMMENT ON TABLE text
+let docs = {};           // table_docs.json: "schema.table" -> {comment, pk, fk}
 
 function setStatus(text, kind) {
   statusEl.textContent = text;
@@ -488,6 +511,257 @@ function logLine(sql, res, err) {
   syncEmpty();
 }
 
+// ---------------------------------------------------------------- ERD
+// The diagram is read from the query text (json_serialize_sql), not from the plan: the optimizer
+// reorders joins and turns LEFT into RIGHT, the parser keeps the joins as the participant wrote them.
+// Keys and comments come from table_docs.json, then COMMENT ON TABLE. Without a documented key,
+// the "1" or "many" end of a join comes from a uniqueness check on the join columns.
+const MERMAID = "https://cdn.jsdelivr.net/npm/mermaid@11.17.2/dist/mermaid.esm.min.mjs";
+let mermaid = null;
+let erd = null;       // {model, drawn} for the result on screen
+let view = "table";
+let erdSeq = 0;
+const lc = (s) => String(s).toLowerCase();
+
+function keyInfo(key) {
+  const d = docs[key] ?? {};
+  const pk = new Set((d.pk ?? []).map(lc));
+  const fk = Object.fromEntries(Object.entries(d.fk ?? {}).map(([c, ref]) => [lc(c), ref]));
+  return {
+    doc: docs[key], pk, fk,
+    comment: d.comment ?? tableComments[key] ?? "",
+    tags: (c) => (pk.has(lc(c)) ? `<span class="tag">PK</span>` : "") + (fk[lc(c)] ? `<span class="tag">FK</span>` : ""),
+  };
+}
+
+function findTable(schema, name) {
+  const keys = Object.keys(catalog);
+  const hits = schema
+    ? keys.filter((k) => lc(k) === lc(`${schema}.${name}`))
+    : keys.filter((k) => lc(k.slice(k.indexOf(".") + 1)) === lc(name));
+  return hits.find((k) => k.startsWith("main.")) ?? hits[0] ?? (schema ? `${schema}.${name}` : name);
+}
+
+function deep(o, fn) {
+  if (Array.isArray(o)) { for (const x of o) deep(x, fn); return; }
+  if (o && typeof o === "object") { fn(o); for (const v of Object.values(o)) deep(v, fn); }
+}
+
+// Column references of one SELECT, without descending into nested SELECTs.
+function colRefs(o, fn, root = true) {
+  if (Array.isArray(o)) { for (const x of o) colRefs(x, fn, false); return; }
+  if (!o || typeof o !== "object") return;
+  if (!root && o.type === "SELECT_NODE") return;
+  if (o.class === "COLUMN_REF" || o.class === "STAR") fn(o);
+  for (const v of Object.values(o)) colRefs(v, fn, false);
+}
+
+function entity(m, key, kind) {
+  const id = lc(key);
+  if (!m.ents.has(id)) {
+    m.ents.set(id, { id: `e${m.ents.size}`, key, kind, cols: kind ? null : catalog[key] ?? null, used: new Set(), keys: new Set(), all: false });
+  }
+  return m.ents.get(id);
+}
+
+function resolveCol(names, scope) {
+  const name = names[names.length - 1];
+  let s;
+  if (names.length > 1) {
+    const q = lc(names[names.length - 2]);
+    s = scope.find((x) => lc(x.alias) === q);
+  } else {
+    s = scope.find((x) => x.ent.cols?.some((c) => lc(c.name) === lc(name))) ?? (scope.length === 1 ? scope[0] : null);
+  }
+  return s ? { s, ent: s.ent, col: lc(name) } : null;
+}
+
+// Walk a FROM tree, record its joins, return the relations it brings into scope.
+function fromTree(ref, m, ctes) {
+  if (!ref) return [];
+  if (ref.type === "BASE_TABLE") {
+    const cte = !ref.schema_name && ctes.has(lc(ref.table_name));
+    const ent = entity(m, cte ? ref.table_name : findTable(ref.schema_name, ref.table_name), cte ? "CTE" : "");
+    return [{ alias: ref.alias || ref.table_name, ent }];
+  }
+  if (ref.type === "SUBQUERY") return [{ alias: ref.alias, ent: entity(m, ref.alias || "subquery", "subquery") }];
+  if (ref.type !== "JOIN") return [];
+  const L = fromTree(ref.left, m, ctes), R = fromTree(ref.right, m, ctes);
+  if (!L.length || !R.length) return [...L, ...R];
+  const both = [...L, ...R];
+  const pairs = [];
+  const pair = (x, y) => {
+    if (!x || !y) return;
+    if (L.includes(x.s) && R.includes(y.s)) pairs.push([x, y]);
+    else if (R.includes(x.s) && L.includes(y.s)) pairs.push([y, x]);
+  };
+  const conds = ref.condition?.type === "CONJUNCTION_AND" ? ref.condition.children : ref.condition ? [ref.condition] : [];
+  for (const c of conds) {
+    if (c.type === "COMPARE_EQUAL" && c.left?.class === "COLUMN_REF" && c.right?.class === "COLUMN_REF") {
+      pair(resolveCol(c.left.column_names, both), resolveCol(c.right.column_names, both));
+    }
+  }
+  for (const u of ref.using_columns ?? []) pair(resolveCol([u], L), resolveCol([u], R));
+  const type = ref.ref_type === "REGULAR" ? ref.join_type : ref.ref_type;
+  const groups = new Map();
+  for (const [x, y] of pairs) {
+    const g = groups.get(x.ent.id + y.ent.id) ?? { type, a: x.ent, b: y.ent, ac: [], bc: [] };
+    g.ac.push(x.col); g.bc.push(y.col);
+    x.ent.keys.add(x.col); y.ent.keys.add(y.col);
+    groups.set(x.ent.id + y.ent.id, g);
+  }
+  if (groups.size) m.joins.push(...groups.values());
+  else m.joins.push({ type, a: L[0].ent, b: R[0].ent, ac: [], bc: [], unknown: true });
+  return both;
+}
+
+async function erdModel(sql) {
+  const stmt = await conn.prepare("SELECT json_serialize_sql(?::VARCHAR) AS j");
+  let ast;
+  try { ast = JSON.parse((await stmt.query(sql)).toArray()[0].j); } finally { await stmt.close(); }
+  if (ast.error) return null;
+  const m = { ents: new Map(), joins: [] };
+  const ctes = new Set();
+  deep(ast, (o) => { for (const c of o.cte_map?.map ?? []) ctes.add(lc(c.key)); });
+  deep(ast, (o) => {
+    if (o.type !== "SELECT_NODE") return;
+    const scope = fromTree(o.from_table, m, ctes);
+    colRefs(o, (r) => {
+      if (r.class === "STAR") {
+        for (const s of scope) if (!r.relation_name || lc(r.relation_name) === lc(s.alias)) s.ent.all = true;
+      } else {
+        const hit = resolveCol(r.column_names, scope);
+        if (hit) hit.ent.used.add(hit.col);
+      }
+    });
+  });
+  return m.joins.length ? m : null;
+}
+
+// true = the join columns identify one row of the table, false = many, null = unknown.
+const uniqueCache = new Map();
+async function isUnique(ent, cols) {
+  if (ent.kind) return null;  // ponytail: CTE and subquery ends are drawn as "many", check them if it ever matters
+  const k = keyInfo(ent.key);
+  if (k.doc) return k.pk.size > 0 && [...k.pk].every((c) => cols.includes(c));
+  const ck = `${ent.key}#${cols.join(",")}`;
+  if (!uniqueCache.has(ck)) {
+    const [schema, table] = ent.key.split(".");
+    const list = cols.map(ident).join(", ");
+    const r = await conn.query(`SELECT count(*) = count(DISTINCT (${list})) AS u FROM ${ident(schema)}.${ident(table)}`);
+    uniqueCache.set(ck, Boolean(r.toArray()[0].u));
+  }
+  return uniqueCache.get(ck);
+}
+
+const mmWord = (s) => String(s).replace(/\(.*$/, "").trim().replace(/[^A-Za-z0-9_]/g, "_") || "x";
+
+function mermaidText(m) {
+  const out = ["erDiagram"];
+  const joined = new Set(m.joins.flatMap((j) => [j.a, j.b]));
+  for (const e of joined) {
+    const k = keyInfo(e.key);
+    const keep = (c) => e.all || k.pk.has(c) || k.fk[c] || e.used.has(c) || e.keys.has(c);
+    const cols = e.cols
+      ? e.cols.filter((c) => keep(lc(c.name)))
+      : [...new Set([...e.keys, ...e.used])].map((name) => ({ name, type: "?" }));
+    const label = (e.kind ? `${e.key} (${e.kind})` : e.key).replace(/"/g, "");
+    out.push(`  ${e.id}["${label}"] {`);
+    for (const c of cols) {
+      const marks = [k.pk.has(lc(c.name)) && "PK", k.fk[lc(c.name)] && "FK"].filter(Boolean).join(", ");
+      out.push(`    ${c.type === "?" ? "any" : mmWord(c.type)} ${mmWord(c.name)}${marks ? " " + marks : ""}`);
+    }
+    out.push("  }");
+  }
+  const seen = new Set();
+  for (const j of m.joins) {
+    const optA = j.type === "RIGHT" || j.type === "FULL", optB = j.type === "LEFT" || j.type === "FULL";
+    let line;
+    if (j.unknown) {
+      line = `  ${j.a.id} }o..o{ ${j.b.id} : "${j.type} JOIN"`;
+    } else {
+      const left = j.aOne ? (optA ? "|o" : "||") : (optA ? "}o" : "}|");
+      const right = j.bOne ? (optB ? "o|" : "||") : (optB ? "o{" : "|{");
+      const on = j.ac.map((c, i) => (c === j.bc[i] ? c : `${c} = ${j.bc[i]}`)).join(", ");
+      line = `  ${j.a.id} ${left}--${right} ${j.b.id} : "${j.type} · ${on}"`;
+    }
+    if (!seen.has(line)) { seen.add(line); out.push(line); }
+  }
+  return out.join("\n");
+}
+
+function themeVars() {
+  const v = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  return {
+    fontFamily: v("--mono"), fontSize: "13px",
+    background: v("--panel"), mainBkg: v("--panel"), primaryColor: v("--panel"),
+    primaryTextColor: v("--ink"), textColor: v("--ink"), primaryBorderColor: v("--line"), nodeBorder: v("--line"),
+    lineColor: v("--ink"), tertiaryColor: v("--soft"), edgeLabelBackground: v("--panel"),
+    attributeBackgroundColorOdd: v("--panel"), attributeBackgroundColorEven: v("--soft"),
+    rowOdd: v("--panel"), rowEven: v("--soft"),
+  };
+}
+
+function erdInfo(e) {
+  const k = keyInfo(e.key);
+  const about = k.comment
+    || (e.kind === "CTE" ? "A CTE defined in this query."
+      : e.kind ? "A subquery in this query."
+      : `No description yet. Add one with COMMENT ON TABLE ${e.key} IS '...';`);
+  const fks = Object.entries(k.fk).map(([c, ref]) => `<div>FK ${esc(c)} → ${esc(ref)}</div>`).join("");
+  return `<b>${esc(e.key)}</b>${e.kind ? `<span class="tag">${esc(e.kind)}</span>` : ""}<p>${esc(about)}</p>` +
+    (k.pk.size ? `<div>PK ${esc([...k.pk].join(", "))}</div>` : "") + fks;
+}
+
+async function drawErd() {
+  const cur = erd, box = $("erd");
+  if (!cur || cur.drawn) return;
+  cur.drawn = true;
+  box.innerHTML = `<div class="note">Drawing the diagram...</div>`;
+  try {
+    for (const j of cur.model.joins) {
+      if (j.unknown) continue;
+      j.aOne = await isUnique(j.a, j.ac);
+      j.bOne = await isUnique(j.b, j.bc);
+    }
+    mermaid ??= (await import(MERMAID)).default;
+    mermaid.initialize({ startOnLoad: false, theme: "base", themeVariables: themeVars(), securityLevel: "strict", er: { useMaxWidth: true } });
+    const { svg } = await mermaid.render(`erd-svg-${++erdSeq}`, mermaidText(cur.model));
+    if (erd !== cur) return;
+    box.innerHTML = `<div class="erd-canvas">${svg}</div><div class="erd-info" id="erd-info">Click a table to see what it is.</div>`;
+    // Fit wide diagrams to the panel, but never below 70% of their size: narrower screens scroll instead.
+    const el = box.querySelector("svg");
+    el.style.minWidth = `${Math.round(el.viewBox.baseVal.width * 0.7)}px`;
+    const ents = [...cur.model.ents.values()];
+    for (const g of box.querySelectorAll("g.node")) {
+      const e = ents.find((x) => new RegExp(`-${x.id}-`).test(g.id + "-"));
+      if (e) g.addEventListener("click", () => { $("erd-info").innerHTML = erdInfo(e); });
+    }
+  } catch (err) {
+    cur.drawn = false;
+    if (erd === cur) box.innerHTML = `<div class="note">Could not draw the ERD: ${esc(err.message || err)}</div>`;
+  }
+}
+
+function setView(v) {
+  view = v;
+  for (const b of document.querySelectorAll("button.tab")) b.classList.toggle("active", b.dataset.view === v);
+  $("result").hidden = v !== "table";
+  $("erd").hidden = v !== "erd";
+  if (v === "erd") drawErd();
+}
+
+async function showErdTab(sql) {
+  let model = null;
+  if (sql && READ_ONLY.test(stripComments(sql))) {
+    try { model = await erdModel(sql); } catch (err) { console.warn("ERD:", err); }
+  }
+  erd = model && { model, drawn: false };
+  $("erd").innerHTML = "";
+  $("tab-erd").hidden = !erd;
+  setView(erd && view === "erd" ? "erd" : "table");
+}
+
 // ---------------------------------------------------------------- schema browser
 // Table size = rows x row width, the uncompressed size of the data. DuckDB keeps no per-table
 // byte count for in-memory tables, so fixed-width types use their storage width and text
@@ -528,7 +802,7 @@ const LAYER_ORDER = ["source", "bronze", "silver", "gold", "sandbox", "lab"];
 async function refreshTables() {
   const db = "database_name = current_database()";
   const tables = (await conn.query(
-    `SELECT schema_name, table_name, estimated_size FROM duckdb_tables() WHERE ${db}`)).toArray();
+    `SELECT schema_name, table_name, estimated_size, comment FROM duckdb_tables() WHERE ${db}`)).toArray();
   const views = (await conn.query(
     `SELECT schema_name, view_name FROM duckdb_views() WHERE NOT internal AND ${db}`)).toArray();
   const columns = (await conn.query(
@@ -536,6 +810,8 @@ async function refreshTables() {
     "ORDER BY schema_name, table_name, column_index")).toArray();
   const colsOf = {};
   for (const c of columns) (colsOf[`${c.schema_name}.${c.table_name}`] ??= []).push({ name: c.column_name, type: c.data_type });
+  catalog = colsOf;
+  tableComments = Object.fromEntries(tables.filter((t) => t.comment).map((t) => [`${t.schema_name}.${t.table_name}`, t.comment]));
 
   const by = {};
   for (const t of tables) {
@@ -558,10 +834,12 @@ async function refreshTables() {
       const meta = t.view
         ? `<span class="tag">view</span>`
         : `${fmtInt(t.rows)} rows${t.bytes === null ? "" : ` · ${fmtBytes(t.bytes)}`}`;
-      const cols = t.cols.map((c) => `<div class="col"><span>${esc(c.name)}</span><span class="type">${esc(c.type)}</span></div>`).join("");
+      const k = keyInfo(`${s}.${t.name}`);
+      const cols = t.cols.map((c) => `<div class="col"><span>${esc(c.name)}</span>${k.tags(c.name)}<span class="type">${esc(c.type)}</span></div>`).join("");
+      const note = k.comment ? `<div class="tbl-note">${esc(k.comment)}</div>` : "";
       const key = `t:${s}.${t.name}`;
       return `<details class="tbl" data-key="${esc(key)}" ${openNodes.has(key) ? "open" : ""}>` +
-        `<summary title="${esc(`${s}.${t.name}`)}"><span class="name">${esc(t.name)}</span><span class="meta">${meta}</span></summary>${cols}</details>`;
+        `<summary title="${esc(k.comment || `${s}.${t.name}`)}"><span class="name">${esc(t.name)}</span><span class="meta">${meta}</span></summary>${note}${cols}</details>`;
     }).join("");
     const key = `s:${s}`;
     return `<details class="schema" data-key="${esc(key)}" ${openNodes.has(key) ? "open" : ""}>` +
@@ -589,12 +867,12 @@ async function runScript(sql, { showLog = true, progress = false } = {}) {
   const stmts = splitSql(sql);
   const bar = $("progress"), fill = bar.firstElementChild;
   if (progress) { bar.style.display = "block"; fill.style.width = "0"; }
-  let last = null, failed = false;
+  let last = null, lastSql = null, failed = false;
   for (let k = 0; k < stmts.length; k++) {
     try {
       const res = await runProfiled(stmts[k]);
       if (showLog) logLine(stmts[k], res);
-      if (res.table && res.table.schema.fields.length) last = res.table;
+      if (res.table && res.table.schema.fields.length) { last = res.table; lastSql = stmts[k]; }
     } catch (err) {
       logLine(stmts[k], null, err);
       failed = true;
@@ -604,6 +882,7 @@ async function runScript(sql, { showLog = true, progress = false } = {}) {
   }
   if (progress) setTimeout(() => (bar.style.display = "none"), 800);
   if (last) renderTable(last); else $("result").innerHTML = "";
+  await showErdTab(last && lastSql);
   syncEmpty();
   return !failed;
 }
@@ -676,6 +955,7 @@ async function resetAll() {
   await refreshTables();
   $("log").innerHTML = "";
   $("result").innerHTML = "";
+  await showErdTab(null);
   syncEmpty();
   setBusy(false);
 }
@@ -704,6 +984,12 @@ $("run").onclick = runEditor;
 $("build").onclick = buildData;
 $("catchup").onclick = catchUp;
 $("reset").onclick = resetAll;
+for (const b of document.querySelectorAll("button.tab")) b.onclick = () => setView(b.dataset.view);
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  if (!erd) return;
+  erd.drawn = false;
+  if (view === "erd") drawErd();
+});
 
 // ---------------------------------------------------------------- start
 try {
@@ -715,10 +1001,11 @@ try {
   // does not persist yet. A closed tab is fixed with one click on "Run catch-up".
   await db.open({ query: { castBigIntToDouble: true, castDecimalToDouble: true } });
   conn = await db.connect();
+  try { docs = JSON.parse(await fetchText("table_docs.json")); } catch {}
   await refreshTables();
   setBusy(false);
   setStatus(readyText(), "ready");
-  window.ptxyz = { conn, splitSql };  // for automated tests
+  window.ptxyz = { conn, splitSql, erdModel, mermaidText };  // for automated tests
 } catch (err) {
   setStatus("DuckDB could not start: " + (err.message || err), "bad");
   console.error(err);
