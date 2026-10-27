@@ -24,6 +24,11 @@ The tables live in the browser tab.
 If you close the tab, or start a new day, open the page again and use **Catch up** to rebuild every table up to the lab you are starting.
 The editor text is kept.
 
+To keep your own work, use **Save point**.
+It saves every table and view outside `source` and `lab` (keys and comments included) in this browser's private storage, and **Restore** brings them back after the tab or the browser was closed.
+Save points belong to one browser on one laptop: use the download button to keep a `.ptxyz` copy, and **Upload a save point** to restore it on another laptop or browser.
+Clearing the browser's site data deletes the save points stored in it, not the downloaded files.
+
 ## The data
 
 PT XYZ is a fictional cigarette manufacturer in Indonesia: 2,000 SKUs in 20 brands (SKT, SKM, SPM), 50,000 outlets, 1,000 distributors, 25 sales areas in 5 regions, and 1.5 million sales order lines from January 2019 to August 2025.

@@ -154,6 +154,29 @@
   .btn:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 3px solid var(--yellow); outline-offset: 1px; }
   aside .btn, aside select { width: 100%; }
   aside select + .btn { margin-top: 8px; }
+  input[type="text"] {
+    min-width: 0;
+    font: 14px var(--sans);
+    color: var(--ink);
+    background: var(--panel);
+    border: 2px solid var(--line);
+    border-radius: 2px;
+    padding: 9px 10px;
+  }
+  input[type="text"]:disabled { opacity: .45; }
+  input[type="text"]:focus-visible { outline: 3px solid var(--yellow); outline-offset: 1px; }
+  .sp-row { display: flex; gap: 8px; }
+  .sp-row input { flex: 1; }
+  aside .sp-row .btn { width: auto; }
+  #savepoints { list-style: none; margin: 10px 0; padding: 0; }
+  #savepoints:empty { display: none; }
+  #savepoints li { display: flex; align-items: center; gap: 6px; padding: 7px 0; border-top: 1px solid var(--hair); }
+  #savepoints li:last-child { border-bottom: 1px solid var(--hair); }
+  .sp-meta { flex: 1; min-width: 0; font-size: 13px; }
+  .sp-meta b { display: block; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sp-meta span { color: var(--muted); font: 11.5px var(--mono); }
+  aside #savepoints .btn { width: auto; padding: 7px 8px; font-size: 11px; }
+  #savepoints .btn svg { display: block; }
   .progress { height: 10px; border: 2px solid var(--line); margin-top: 10px; display: none; background: var(--soft); }
   .progress div { height: 100%; width: 0; background: var(--sky); transition: width .2s; }
 
@@ -310,6 +333,19 @@
       </div>
     </section>
     <section class="card">
+      <div class="card-head"><span class="num">3</span>Save point</div>
+      <div class="card-body">
+        <p>Saves your own tables (everything except source and lab) in this browser. Download a copy to move to another laptop.</p>
+        <div class="sp-row">
+          <input id="sp-name" type="text" placeholder="Name, e.g. After Lab 7" aria-label="Save point name" disabled>
+          <button id="sp-save" class="btn" disabled>Save</button>
+        </div>
+        <ul id="savepoints"></ul>
+        <button id="sp-upload" class="btn" disabled>Upload a save point</button>
+        <input id="sp-file" type="file" accept=".ptxyz" hidden>
+      </div>
+    </section>
+    <section class="card">
       <div class="card-head">Schema<span class="right" id="mem"></span></div>
       <div id="tables"><p>No tables yet.</p></div>
     </section>
@@ -355,6 +391,7 @@ const statusEl = $("status");
 const ROW_GROUP = 122880;
 const MAX_ROWS = 500;
 let conn = null;
+let db = null;
 let busy = false;
 let catalog = {};        // "schema.table" -> [{name, type}]
 let tableComments = {};  // "schema.table" -> COMMENT ON TABLE text
@@ -861,6 +898,7 @@ async function refreshTables() {
 function setBusy(on) {
   busy = on;
   for (const id of ["run", "build", "catchup", "checkpoint", "reset"]) $(id).disabled = on;
+  for (const el of document.querySelectorAll("#sp-name, #sp-save, #sp-upload, #savepoints button")) el.disabled = on || !hasOpfs;
 }
 
 async function runScript(sql, { showLog = true, progress = false } = {}) {
@@ -960,6 +998,206 @@ async function resetAll() {
   setBusy(false);
 }
 
+// ---------------------------------------------------------------- save points
+// A save point is one file in this browser's private storage (OPFS): the participant's own
+// tables as Parquet, with their DDL (keys included), comments and views. source and lab are not
+// saved: the build recreates them exactly. The same file is what Download and Upload move.
+// Layout: "PTXYZSP1", header length (uint32 LE), JSON header, then the Parquet files back to back.
+const SP_MAGIC = "PTXYZSP1";
+const SP_OWN = "database_name = current_database() AND schema_name NOT IN ('source', 'lab')";
+const hasOpfs = Boolean(navigator.storage?.getDirectory);
+const spDir = async () => (await navigator.storage.getDirectory()).getDirectoryHandle("savepoints", { create: true });
+const sqlStr = (s) => `'${String(s).replace(/'/g, "''")}'`;
+const fmtDate = (ms) => new Date(ms).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+
+async function spHeader(file) {
+  const head = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+  if (new TextDecoder().decode(head.slice(0, 8)) !== SP_MAGIC) throw new Error("This is not a save point file from this lab.");
+  const len = new DataView(head.buffer).getUint32(8, true);
+  return { meta: JSON.parse(await file.slice(12, 12 + len).text()), start: 12 + len };
+}
+
+async function writeSave(fileName, blob) {
+  const w = await (await (await spDir()).getFileHandle(fileName, { create: true })).createWritable();
+  await w.write(blob);
+  await w.close();
+}
+
+// Run fn on every item; retry the ones that fail once the others are done, so foreign keys and
+// views that read other views settle their own order.
+async function inDependencyOrder(items, fn) {
+  let todo = [...items];
+  const done = [];
+  while (todo.length) {
+    const failed = [];
+    let last;
+    for (const it of todo) {
+      try { await fn(it); done.push(it); } catch (err) { failed.push(it); last = err; }
+    }
+    if (failed.length === todo.length) throw last;
+    todo = failed;
+  }
+  return done;
+}
+
+async function saveSavepoint() {
+  if (busy) return;
+  const name = $("sp-name").value.trim() || fmtDate(Date.now());
+  setBusy(true);
+  $("log").innerHTML = "";
+  setStatus("Saving...", "busy");
+  try {
+    const tables = (await conn.query(`SELECT schema_name, table_name, sql, comment FROM duckdb_tables() WHERE ${SP_OWN}`)).toArray();
+    if (!tables.length) throw new Error("No tables of your own yet. Catch up or create a table first, then save.");
+    const colComments = (await conn.query(
+      `SELECT schema_name, table_name, column_name, comment FROM duckdb_columns() WHERE comment IS NOT NULL AND ${SP_OWN}`)).toArray();
+    const views = (await conn.query(`SELECT schema_name, view_name, sql, comment FROM duckdb_views() WHERE NOT internal AND ${SP_OWN}`)).toArray();
+    const meta = {
+      name, created: Date.now(), tables: [],
+      views: views.map((v) => ({ schema: v.schema_name, name: v.view_name, sql: v.sql, comment: v.comment })),
+    };
+    const parts = [];
+    for (const t of tables) {
+      // A fresh name per file: DuckDB-WASM caches registered files by name.
+      const f = `save_${meta.created}_${parts.length}.parquet`;
+      await conn.query(`COPY ${ident(t.schema_name)}.${ident(t.table_name)} TO '${f}' (FORMAT parquet, COMPRESSION zstd)`);
+      parts.push(await db.copyFileToBuffer(f));
+      await db.dropFile(f);
+      const columns = colComments.filter((c) => c.schema_name === t.schema_name && c.table_name === t.table_name);
+      meta.tables.push({
+        schema: t.schema_name, name: t.table_name, sql: t.sql, comment: t.comment,
+        columns: Object.fromEntries(columns.map((c) => [c.column_name, c.comment])), bytes: parts.at(-1).byteLength,
+      });
+    }
+    const header = new TextEncoder().encode(JSON.stringify(meta));
+    const len = new Uint8Array(4);
+    new DataView(len.buffer).setUint32(0, header.length, true);
+    const blob = new Blob([SP_MAGIC, len, header, ...parts]);
+    await writeSave(`${meta.created}.ptxyz`, blob);
+    navigator.storage.persist?.();  // ask the browser not to evict save points under storage pressure
+    $("sp-name").value = "";
+    showNote(`Saved "${name}": ${tables.length} ${tables.length === 1 ? "table" : "tables"}, ${fmtBytes(blob.size)}.`);
+  } catch (err) {
+    logLine("save point", null, err);
+  } finally {
+    await listSavepoints();
+    setBusy(false);
+    setStatus(readyText(), "ready");
+  }
+}
+
+// Drop every table and view outside source and lab, so the restore matches the save point exactly.
+async function dropOwnObjects() {
+  const schemas = (await conn.query(
+    "SELECT schema_name FROM duckdb_schemas() WHERE database_name = current_database() AND NOT internal " +
+    "AND schema_name NOT IN ('source', 'lab', 'main')")).toArray();
+  for (const s of schemas) await conn.query(`DROP SCHEMA ${ident(s.schema_name)} CASCADE`);
+  const views = (await conn.query(`SELECT view_name FROM duckdb_views() WHERE NOT internal AND ${SP_OWN}`)).toArray();
+  for (const v of views) await conn.query(`DROP VIEW IF EXISTS main.${ident(v.view_name)}`);
+  const tables = (await conn.query(`SELECT table_name FROM duckdb_tables() WHERE ${SP_OWN}`)).toArray();
+  await inDependencyOrder(tables, (t) => conn.query(`DROP TABLE main.${ident(t.table_name)}`));
+}
+
+async function restoreSavepoint(fileName) {
+  if (busy) return;
+  const file = await (await (await spDir()).getFileHandle(fileName)).getFile();
+  const { meta, start } = await spHeader(file);
+  if (!confirm(`Restore "${meta.name}"? Your tables outside source and lab are replaced by the ones in this save point.`)) return;
+  const hasSource = await refreshTables();
+  if (!hasSource && !(await buildData())) return;
+  setBusy(true);
+  $("log").innerHTML = "";
+  setStatus("Restoring...", "busy");
+  const t0 = performance.now();
+  try {
+    await dropOwnObjects();
+    for (const s of new Set([...meta.tables, ...meta.views].map((x) => x.schema))) await conn.query(`CREATE SCHEMA IF NOT EXISTS ${ident(s)}`);
+    let offset = start;
+    const items = meta.tables.map((t) => { const it = { ...t, offset }; offset += t.bytes; return it; });
+    const created = await inDependencyOrder(items, (t) => conn.query(t.sql));
+    for (const [i, t] of created.entries()) {  // parents first, so foreign keys find their rows
+      const f = `restore_${Date.now()}_${i}.parquet`;  // a fresh name: DuckDB-WASM caches files by name
+      await db.registerFileBuffer(f, new Uint8Array(await file.slice(t.offset, t.offset + t.bytes).arrayBuffer()));
+      try {
+        await conn.query(`INSERT INTO ${ident(t.schema)}.${ident(t.name)} SELECT * FROM read_parquet('${f}')`);
+      } finally {
+        await db.dropFile(f);
+      }
+    }
+    await inDependencyOrder(meta.views, (v) => conn.query(v.sql));
+    for (const t of meta.tables) {
+      const q = `${ident(t.schema)}.${ident(t.name)}`;
+      if (t.comment) await conn.query(`COMMENT ON TABLE ${q} IS ${sqlStr(t.comment)}`);
+      for (const [c, text] of Object.entries(t.columns)) await conn.query(`COMMENT ON COLUMN ${q}.${ident(c)} IS ${sqlStr(text)}`);
+    }
+    for (const v of meta.views) if (v.comment) await conn.query(`COMMENT ON VIEW ${ident(v.schema)}.${ident(v.name)} IS ${sqlStr(v.comment)}`);
+    showNote(`Restored "${meta.name}" in ${((performance.now() - t0) / 1000).toFixed(1)} s.`);
+  } catch (err) {
+    logLine("restore", null, err);
+  } finally {
+    await refreshTables();
+    setBusy(false);
+    setStatus(readyText(), "ready");
+  }
+}
+
+async function downloadSavepoint(fileName, name) {
+  const file = await (await (await spDir()).getFileHandle(fileName)).getFile();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(file);
+  a.download = `${name.replace(/[^\w.-]+/g, "_")}.ptxyz`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+}
+
+async function deleteSavepoint(fileName, name) {
+  if (busy || !confirm(`Delete the save point "${name}" from this browser?`)) return;
+  await (await spDir()).removeEntry(fileName);
+  await listSavepoints();
+}
+
+async function uploadSavepoint() {
+  const file = $("sp-file").files[0];
+  $("sp-file").value = "";
+  if (!file) return;
+  $("log").innerHTML = "";
+  try {
+    const { meta } = await spHeader(file);
+    await writeSave(`${Date.now()}.ptxyz`, file);
+    showNote(`Uploaded "${meta.name}". Click Restore to load it.`);
+  } catch (err) {
+    logLine("upload", null, err);
+  }
+  await listSavepoints();
+}
+
+async function listSavepoints() {
+  const box = $("savepoints");
+  if (!hasOpfs) {
+    box.innerHTML = `<li class="sp-meta"><span>Save points need a recent Chrome or Edge.</span></li>`;
+    return;
+  }
+  const items = [];
+  for await (const [fileName, handle] of (await spDir()).entries()) {
+    if (!fileName.endsWith(".ptxyz")) continue;
+    const file = await handle.getFile();
+    try { items.push({ fileName, size: file.size, meta: (await spHeader(file)).meta }); } catch {}
+  }
+  items.sort((a, b) => b.fileName.localeCompare(a.fileName, undefined, { numeric: true }));
+  box.innerHTML = items.map((s, i) =>
+    `<li><div class="sp-meta"><b title="${esc(s.meta.name)}">${esc(s.meta.name)}</b><span>${fmtDate(s.meta.created)} · ${fmtBytes(s.size)}</span></div>` +
+    `<button class="btn" data-act="restore" data-i="${i}">Restore</button>` +
+    `<button class="btn" data-act="download" data-i="${i}" title="Download" aria-label="Download ${esc(s.meta.name)}">` +
+    `<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v7.5M2.5 5 6 8.5 9.5 5M1.5 11h9" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></button>` +
+    `<button class="btn" data-act="delete" data-i="${i}" title="Delete" aria-label="Delete ${esc(s.meta.name)}">✕</button></li>`).join("");
+  const act = { restore: restoreSavepoint, download: downloadSavepoint, delete: deleteSavepoint };
+  for (const b of box.querySelectorAll("button")) {
+    const s = items[b.dataset.i];
+    b.disabled = busy;
+    b.onclick = () => act[b.dataset.act](s.fileName, s.meta.name);
+  }
+}
+
 function readyText() {
   return "Ready · tables live in this tab: after closing it, use Catch up";
 }
@@ -984,6 +1222,10 @@ $("run").onclick = runEditor;
 $("build").onclick = buildData;
 $("catchup").onclick = catchUp;
 $("reset").onclick = resetAll;
+$("sp-save").onclick = saveSavepoint;
+$("sp-name").addEventListener("keydown", (e) => { if (e.key === "Enter") saveSavepoint(); });
+$("sp-upload").onclick = () => $("sp-file").click();
+$("sp-file").onchange = uploadSavepoint;
 for (const b of document.querySelectorAll("button.tab")) b.onclick = () => setView(b.dataset.view);
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
   if (!erd) return;
@@ -995,7 +1237,7 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
 try {
   const bundle = await duckdb.selectBundle(duckdb.getJsDelivrBundles());
   const workerUrl = URL.createObjectURL(new Blob([`importScripts("${bundle.mainWorker}");`], { type: "text/javascript" }));
-  const db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING), new Worker(workerUrl));
+  db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING), new Worker(workerUrl));
   await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
   // In memory on purpose: this build reports rows scanned correctly, and its OPFS storage
   // does not persist yet. A closed tab is fixed with one click on "Run catch-up".
@@ -1003,6 +1245,7 @@ try {
   conn = await db.connect();
   try { docs = JSON.parse(await fetchText("table_docs.json")); } catch {}
   await refreshTables();
+  await listSavepoints();
   setBusy(false);
   setStatus(readyText(), "ready");
   window.ptxyz = { conn, splitSql, erdModel, mermaidText };  // for automated tests
