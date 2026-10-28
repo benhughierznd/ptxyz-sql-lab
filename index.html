@@ -269,6 +269,10 @@
     .stmt { grid-template-columns: auto minmax(0, 1fr); }
     .stmt .metrics { grid-column: 2; white-space: normal; }
   }
+  .stmt.pick { cursor: pointer; }
+  .stmt.pick:hover { background: var(--hair); }
+  .stmt.shown { box-shadow: inset 3px 0 0 var(--accent); }
+  .stmt.shown code { color: var(--ink); }
   .stmt.err { color: var(--error); }
   .stmt.err .msg { grid-column: 1 / -1; white-space: pre-wrap; }
   .ok-dot { color: var(--ok); }
@@ -532,7 +536,7 @@ function syncEmpty() {
 
 function logLine(sql, res, err) {
   const div = document.createElement("div");
-  const first = stripComments(sql).split("\n")[0].slice(0, 120);
+  const first = stripComments(sql).replace(/\s+/g, " ").slice(0, 120);
   if (err) {
     div.className = "stmt err";
     div.innerHTML = `<span class="err-dot">✕</span><code>${esc(first)}</code><span></span><div class="msg">${esc(err.message || err)}</div>`;
@@ -549,6 +553,15 @@ function logLine(sql, res, err) {
   }
   $("log").appendChild(div);
   syncEmpty();
+  return div;
+}
+
+// A statement that returned rows can be clicked to show its result and ERD again.
+async function showResult(line, table, sql) {
+  for (const el of $("log").querySelectorAll(".stmt.shown")) el.classList.remove("shown");
+  line?.classList.add("shown");
+  renderTable(table);
+  await showErdTab(sql);
 }
 
 // ---------------------------------------------------------------- ERD
@@ -911,12 +924,20 @@ async function runScript(sql, { showLog = true, progress = false } = {}) {
   const stmts = splitSql(sql);
   const bar = $("progress"), fill = bar.firstElementChild;
   if (progress) { bar.style.display = "block"; fill.style.width = "0"; }
-  let last = null, lastSql = null, failed = false;
+  let last = null, lastSql = null, lastLine = null, failed = false;
   for (let k = 0; k < stmts.length; k++) {
     try {
       const res = await runProfiled(stmts[k]);
-      if (showLog) logLine(stmts[k], res);
-      if (res.table && res.table.schema.fields.length) { last = res.table; lastSql = stmts[k]; }
+      const line = showLog ? logLine(stmts[k], res) : null;
+      if (res.table && res.table.schema.fields.length) {
+        last = res.table; lastSql = stmts[k]; lastLine = line;
+        if (line) {
+          const [table, sql] = [res.table, stmts[k]];
+          line.classList.add("pick");
+          line.title = "Show this result";
+          line.addEventListener("click", () => { if (!busy) showResult(line, table, sql); });
+        }
+      }
     } catch (err) {
       logLine(stmts[k], null, err);
       failed = true;
@@ -925,8 +946,8 @@ async function runScript(sql, { showLog = true, progress = false } = {}) {
     if (progress) fill.style.width = `${Math.round(((k + 1) / stmts.length) * 100)}%`;
   }
   if (progress) setTimeout(() => (bar.style.display = "none"), 800);
-  if (last) renderTable(last); else $("result").innerHTML = "";
-  await showErdTab(last && lastSql);
+  if (last) await showResult(lastLine, last, lastSql);
+  else { $("result").innerHTML = ""; await showErdTab(null); }
   syncEmpty();
   return !failed;
 }
