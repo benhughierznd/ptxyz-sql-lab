@@ -3,3 +3,4 @@ tools/
 validate.py
 validation_report.md
 validation_results.json
+__pycache__/
