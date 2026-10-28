@@ -9,21 +9,6 @@ CREATE SCHEMA IF NOT EXISTS gold;
 
 CREATE SCHEMA IF NOT EXISTS sandbox;
 
-CREATE OR REPLACE TABLE sandbox.sales_mixed AS
-WITH line_sales AS (
-    SELECT
-        l.sl_order_id,
-        l.sl_line_no,
-        o.so_order_date,
-        l.sl_gross_amount * (1 - l.sl_discount) AS amount
-    FROM source.sales_order_line l
-    JOIN source.sales_order o ON l.sl_order_id = o.so_order_id
-    WHERE o.so_order_date >= '2025-01-01' AND o.so_order_date < '2025-02-01'
-)
-SELECT sl_order_id, sl_line_no, so_order_date, amount FROM line_sales
-UNION ALL
-SELECT NULL, NULL, so_order_date, SUM(amount) FROM line_sales GROUP BY so_order_date;
-
 CREATE OR REPLACE TABLE bronze.sales_order_line  AS SELECT *, current_timestamp AS _loaded_at, 'source.sales_order_line'  AS _source FROM source.sales_order_line;
 
 CREATE OR REPLACE TABLE bronze.sales_order       AS SELECT *, current_timestamp AS _loaded_at, 'source.sales_order'       AS _source FROM source.sales_order;
@@ -41,40 +26,26 @@ CREATE OR REPLACE TABLE bronze.area              AS SELECT *, current_timestamp 
 CREATE OR REPLACE TABLE bronze.region            AS SELECT *, current_timestamp AS _loaded_at, 'source.region'            AS _source FROM source.region;
 
 CREATE OR REPLACE TABLE silver.outlet AS
-SELECT
-    o.ot_outlet_id AS outlet_id,
-    o.ot_name      AS outlet_name,
-    o.ot_channel   AS channel,
-    a.ar_name      AS area,
-    r.rg_name      AS region
+SELECT o.ot_outlet_id AS outlet_id, o.ot_name AS outlet_name, o.ot_channel AS channel,
+       a.ar_name AS area, r.rg_name AS region
 FROM bronze.outlet o
 JOIN bronze.area a   ON o.ot_area_id = a.ar_area_id
 JOIN bronze.region r ON a.ar_region_id = r.rg_region_id;
 
 CREATE OR REPLACE TABLE silver.distributor AS
-SELECT
-    d.dt_distributor_id AS distributor_id,
-    d.dt_name           AS distributor_name,
-    a.ar_name           AS area,
-    r.rg_name           AS region
+SELECT d.dt_distributor_id AS distributor_id, d.dt_name AS distributor_name,
+       a.ar_name AS area, r.rg_name AS region
 FROM bronze.distributor d
 JOIN bronze.area a   ON d.dt_area_id = a.ar_area_id
 JOIN bronze.region r ON a.ar_region_id = r.rg_region_id;
 
 CREATE OR REPLACE TABLE silver.sku AS
-SELECT
-    sk_sku_id  AS sku_id,
-    sk_name    AS sku_name,
-    sk_brand   AS brand,
-    sk_segment AS segment
+SELECT sk_sku_id AS sku_id, sk_name AS sku_name, sk_brand AS brand, sk_segment AS segment
 FROM bronze.sku;
 
 CREATE OR REPLACE TABLE silver.distributor_stock AS
-SELECT
-    st_sku_id         AS sku_id,
-    st_distributor_id AS distributor_id,
-    st_stock_slof     AS stock_slof,
-    st_unit_cost_slof AS unit_cost_slof
+SELECT st_sku_id AS sku_id, st_distributor_id AS distributor_id,
+       st_stock_slof AS stock_slof, st_unit_cost_slof AS unit_cost_slof
 FROM bronze.distributor_stock;
 
 CREATE OR REPLACE TABLE silver.sales_line AS
@@ -100,15 +71,5 @@ JOIN bronze.sales_order o ON l.sl_order_id = o.so_order_id
 -- keep the latest load of each order line
 QUALIFY ROW_NUMBER() OVER (PARTITION BY l.sl_order_id, l.sl_line_no ORDER BY l._loaded_at DESC) = 1
 ORDER BY order_date;
-
--- validate: after-day1
-CREATE OR REPLACE TABLE sandbox.dim_brand AS
-SELECT ROW_NUMBER() OVER (ORDER BY brand) AS brand_key, brand
-FROM (SELECT DISTINCT brand FROM gold.dim_sku);
-
-CREATE OR REPLACE TABLE sandbox.dim_sku_sf AS
-SELECT ds.sku_key, ds.sku_id, ds.sku_name, b.brand_key
-FROM gold.dim_sku ds
-JOIN sandbox.dim_brand b ON ds.brand = b.brand;
 
 SELECT 'catch-up done' AS status;
