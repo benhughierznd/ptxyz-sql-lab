@@ -332,10 +332,10 @@
         <p>Closed the tab, or fell behind? Choose the lab you are about to start. The page builds every table the earlier labs make, in about 20 seconds.</p>
         <select id="checkpoint" disabled aria-label="Lab you are about to start">
           <option value="" data-desc="Labs 0, 1 and 2 only need the PT XYZ data: no catch-up needed.">I am about to start...</option>
-          <option value="catchup/catchup_before_lab3.sql" data-desc="Builds what Labs 0-2 make: bronze (8 tables) and silver (5 tables).">Lab 3 · Build the gold star</option>
-          <option value="catchup/catchup_before_lab4.sql" data-desc="Builds Labs 0-3: bronze, silver, the gold star (dim_sku, dim_distributor, fact_sales_line) and the snowflake tables in sandbox.">Lab 4 · SCD Type 2</option>
-          <option value="catchup/catchup_before_case_study.sql" data-desc="Builds Labs 0-4: everything for Lab 4, plus the Type 2 change of distributor 42 and gold.fact_stock_snapshot.">Day 1 Case Study</option>
-          <option value="catchup/catchup_before_day2.sql" data-desc="Builds all of Day 1, including the Case Study: gold.dim_outlet, segment on dim_sku and gold.agg_sales_outlet_region_month.">Day 2 · all of Day 1</option>
+          <option value="catchup/catchup_before_lab3.sql" data-desc="Builds what Labs 0-2 make: bronze (8 tables).">Lab 3 · Build the silver star</option>
+          <option value="catchup/catchup_before_lab4.sql" data-desc="Builds Labs 0-3: bronze, the silver star (dim_sku, dim_distributor, fact_sales_line) and the snowflake tables in sandbox.">Lab 4 · SCD Type 2</option>
+          <option value="catchup/catchup_before_case_study.sql" data-desc="Builds Labs 0-4: everything for Lab 4, plus the Type 2 change of distributor 42 and silver.fact_stock_snapshot.">Day 1 Case Study</option>
+          <option value="catchup/catchup_before_day2.sql" data-desc="Builds all of Day 1, including the Case Study: silver.dim_outlet, segment on dim_sku and the gold mart gold.mart_sales_outlet_region_month.">Day 2 · all of Day 1</option>
         </select>
         <p class="cu-desc" id="cu-desc"></p>
         <button id="catchup" class="btn" disabled>Run catch-up</button>
@@ -851,7 +851,7 @@ async function tableBytes(schema, table, rows, cols) {
   return bytes;
 }
 
-const openNodes = new Set(["s:gold"]);
+const openNodes = new Set(["s:silver"]);
 
 // DuckDB stores CREATE TABLE on one line: put each column on its own line. Views keep their own text.
 function fmtDdl(sql) {

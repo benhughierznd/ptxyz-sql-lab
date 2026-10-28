@@ -9,147 +9,135 @@ CREATE SCHEMA IF NOT EXISTS gold;
 
 CREATE SCHEMA IF NOT EXISTS sandbox;
 
-CREATE OR REPLACE TABLE bronze.sales_order_line  AS SELECT *, current_timestamp AS _loaded_at, 'source.sales_order_line'  AS _source FROM source.sales_order_line;
+CREATE OR REPLACE TABLE bronze.sales_order_line AS
+SELECT *, current_timestamp AS _loaded_at,
+       'source.sales_order_line' AS _source
+FROM source.sales_order_line;
 
-CREATE OR REPLACE TABLE bronze.sales_order       AS SELECT *, current_timestamp AS _loaded_at, 'source.sales_order'       AS _source FROM source.sales_order;
+CREATE OR REPLACE TABLE bronze.sales_order AS
+SELECT *, current_timestamp AS _loaded_at,
+       'source.sales_order' AS _source
+FROM source.sales_order;
 
-CREATE OR REPLACE TABLE bronze.outlet            AS SELECT *, current_timestamp AS _loaded_at, 'source.outlet'            AS _source FROM source.outlet;
+CREATE OR REPLACE TABLE bronze.outlet AS
+SELECT *, current_timestamp AS _loaded_at,
+       'source.outlet' AS _source
+FROM source.outlet;
 
-CREATE OR REPLACE TABLE bronze.sku               AS SELECT *, current_timestamp AS _loaded_at, 'source.sku'               AS _source FROM source.sku;
+CREATE OR REPLACE TABLE bronze.sku AS
+SELECT *, current_timestamp AS _loaded_at,
+       'source.sku' AS _source
+FROM source.sku;
 
-CREATE OR REPLACE TABLE bronze.distributor       AS SELECT *, current_timestamp AS _loaded_at, 'source.distributor'       AS _source FROM source.distributor;
+CREATE OR REPLACE TABLE bronze.distributor AS
+SELECT *, current_timestamp AS _loaded_at,
+       'source.distributor' AS _source
+FROM source.distributor;
 
-CREATE OR REPLACE TABLE bronze.distributor_stock AS SELECT *, current_timestamp AS _loaded_at, 'source.distributor_stock' AS _source FROM source.distributor_stock;
+CREATE OR REPLACE TABLE bronze.distributor_stock AS
+SELECT *, current_timestamp AS _loaded_at,
+       'source.distributor_stock' AS _source
+FROM source.distributor_stock;
 
-CREATE OR REPLACE TABLE bronze.area              AS SELECT *, current_timestamp AS _loaded_at, 'source.area'              AS _source FROM source.area;
+CREATE OR REPLACE TABLE bronze.area AS
+SELECT *, current_timestamp AS _loaded_at,
+       'source.area' AS _source
+FROM source.area;
 
-CREATE OR REPLACE TABLE bronze.region            AS SELECT *, current_timestamp AS _loaded_at, 'source.region'            AS _source FROM source.region;
+CREATE OR REPLACE TABLE bronze.region AS
+SELECT *, current_timestamp AS _loaded_at,
+       'source.region' AS _source
+FROM source.region;
 
-CREATE OR REPLACE TABLE silver.outlet AS
-SELECT o.ot_outlet_id AS outlet_id, o.ot_name AS outlet_name, o.ot_channel AS channel,
-       a.ar_name AS area, r.rg_name AS region
-FROM bronze.outlet o
-JOIN bronze.area a   ON o.ot_area_id = a.ar_area_id
-JOIN bronze.region r ON a.ar_region_id = r.rg_region_id;
+-- one row per SKU
+CREATE OR REPLACE TABLE silver.dim_sku AS
+SELECT ROW_NUMBER() OVER (ORDER BY sk_sku_id) AS sku_key,
+       sk_sku_id AS sku_id, sk_name AS sku_name, sk_brand AS brand
+FROM bronze.sku;
 
-CREATE OR REPLACE TABLE silver.distributor AS
-SELECT d.dt_distributor_id AS distributor_id, d.dt_name AS distributor_name,
-       a.ar_name AS area, r.rg_name AS region
+-- one row per distributor version (ready for SCD Type 2 in Lab 4)
+CREATE OR REPLACE TABLE silver.dim_distributor AS
+SELECT
+    ROW_NUMBER() OVER (ORDER BY d.dt_distributor_id) AS distributor_key,
+    d.dt_distributor_id AS distributor_id,
+    d.dt_name           AS distributor_name,
+    a.ar_name           AS area,
+    r.rg_name           AS region,
+    DATE '1900-01-01'   AS valid_from,
+    CAST(NULL AS DATE)  AS valid_to,
+    TRUE                AS is_current
 FROM bronze.distributor d
 JOIN bronze.area a   ON d.dt_area_id = a.ar_area_id
 JOIN bronze.region r ON a.ar_region_id = r.rg_region_id;
 
-CREATE OR REPLACE TABLE silver.sku AS
-SELECT sk_sku_id AS sku_id, sk_name AS sku_name, sk_brand AS brand, sk_segment AS segment
-FROM bronze.sku;
-
-CREATE OR REPLACE TABLE silver.distributor_stock AS
-SELECT st_sku_id AS sku_id, st_distributor_id AS distributor_id,
-       st_stock_slof AS stock_slof, st_unit_cost_slof AS unit_cost_slof
-FROM bronze.distributor_stock;
-
-CREATE OR REPLACE TABLE silver.sales_line AS
-SELECT
-    l.sl_order_id       AS order_id,
-    l.sl_line_no        AS line_no,
-    o.so_order_date     AS order_date,
-    o.so_order_source   AS order_source,
-    o.so_outlet_id      AS outlet_id,
-    l.sl_sku_id         AS sku_id,
-    l.sl_distributor_id AS distributor_id,
-    l.sl_qty_slof       AS qty_slof,
-    l.sl_gross_amount   AS gross_amount,
-    l.sl_discount       AS discount,
-    -- company definition of net sales: after discount, before excise and VAT
-    l.sl_gross_amount * (1 - l.sl_discount) AS net_amount,
-    l.sl_excise_amount  AS excise_amount,
-    l.sl_ship_date      AS ship_date,
-    l.sl_promised_date  AS promised_date,
-    l.sl_delivery_date  AS delivery_date
-FROM bronze.sales_order_line l
-JOIN bronze.sales_order o ON l.sl_order_id = o.so_order_id
--- keep the latest load of each order line
-QUALIFY ROW_NUMBER() OVER (PARTITION BY l.sl_order_id, l.sl_line_no ORDER BY l._loaded_at DESC) = 1
-ORDER BY order_date;
-
--- one row per SKU
-CREATE OR REPLACE TABLE gold.dim_sku AS
-SELECT ROW_NUMBER() OVER (ORDER BY sku_id) AS sku_key, sku_id, sku_name, brand
-FROM silver.sku;
-
--- one row per distributor version (ready for SCD Type 2 in Lab 4)
-CREATE OR REPLACE TABLE gold.dim_distributor AS
-SELECT
-    ROW_NUMBER() OVER (ORDER BY distributor_id) AS distributor_key,
-    distributor_id,
-    distributor_name,
-    area,
-    region,
-    DATE '1900-01-01'  AS valid_from,
-    CAST(NULL AS DATE) AS valid_to,
-    TRUE               AS is_current
-FROM silver.distributor;
-
 -- new distributor versions get keys above the initial load
-CREATE OR REPLACE SEQUENCE gold.distributor_key_seq START WITH 1001;
+CREATE OR REPLACE SEQUENCE silver.distributor_key_seq START WITH 1001;
 
-CREATE OR REPLACE TABLE gold.fact_sales_line AS
+CREATE OR REPLACE TABLE silver.fact_sales_line AS
 SELECT
-    sl.order_id,
-    sl.line_no,
-    sl.order_date,
+    l.sl_order_id   AS order_id,
+    l.sl_line_no    AS line_no,
+    o.so_order_date AS order_date,
     ds.sku_key,
     dd.distributor_key,
-    sl.qty_slof,
-    sl.gross_amount,
-    sl.discount,
-    sl.net_amount
-FROM silver.sales_line sl
-JOIN gold.dim_sku ds ON sl.sku_id = ds.sku_id
-JOIN gold.dim_distributor dd
-    ON  sl.distributor_id = dd.distributor_id
-    AND sl.order_date >= dd.valid_from
-    AND sl.order_date <  COALESCE(dd.valid_to, DATE '9999-12-31')
+    l.sl_qty_slof   AS qty_slof,
+    l.sl_gross_amount AS gross_amount,
+    l.sl_discount   AS discount,
+    -- company definition of net sales: after discount, before excise and VAT
+    l.sl_gross_amount * (1 - l.sl_discount) AS net_amount
+FROM bronze.sales_order_line l
+JOIN bronze.sales_order o ON l.sl_order_id = o.so_order_id
+JOIN silver.dim_sku ds    ON l.sl_sku_id = ds.sku_id
+JOIN silver.dim_distributor dd
+    ON  l.sl_distributor_id = dd.distributor_id
+    AND o.so_order_date >= dd.valid_from
+    AND o.so_order_date <  COALESCE(dd.valid_to, DATE '9999-12-31')
+-- keep the latest load of each order line
+QUALIFY ROW_NUMBER() OVER (PARTITION BY l.sl_order_id, l.sl_line_no
+                           ORDER BY l._loaded_at DESC) = 1
 -- load in date order so date filters can skip row groups (Day 2)
-ORDER BY sl.order_date;
+ORDER BY order_date;
 
 CREATE OR REPLACE TABLE sandbox.dim_brand AS
 SELECT ROW_NUMBER() OVER (ORDER BY brand) AS brand_key, brand
-FROM (SELECT DISTINCT brand FROM gold.dim_sku);
+FROM (SELECT DISTINCT brand FROM silver.dim_sku);
 
 CREATE OR REPLACE TABLE sandbox.dim_sku_sf AS
 SELECT ds.sku_key, ds.sku_id, ds.sku_name, b.brand_key
-FROM gold.dim_sku ds
+FROM silver.dim_sku ds
 JOIN sandbox.dim_brand b ON ds.brand = b.brand;
 
 -- close the current version
-UPDATE gold.dim_distributor
+UPDATE silver.dim_distributor
 SET valid_to = current_date, is_current = FALSE
 WHERE distributor_id = 42 AND is_current = TRUE;
 
 -- insert the new version with a new surrogate key
-INSERT INTO gold.dim_distributor
-    (distributor_key, distributor_id, distributor_name, area, region, valid_from, valid_to, is_current)
+INSERT INTO silver.dim_distributor
+    (distributor_key, distributor_id, distributor_name, area, region,
+     valid_from, valid_to, is_current)
 VALUES
-    (nextval('gold.distributor_key_seq'), 42, 'Distributor#0042', 'MAKASSAR', 'INDONESIA TIMUR', current_date, NULL, TRUE);
+    (nextval('silver.distributor_key_seq'), 42, 'Distributor#0042',
+     'MAKASSAR', 'INDONESIA TIMUR', current_date, NULL, TRUE);
 
 -- one row per SKU, per distributor, per snapshot date
-CREATE OR REPLACE TABLE gold.fact_stock_snapshot AS
+CREATE OR REPLACE TABLE silver.fact_stock_snapshot AS
 SELECT
     current_date AS snapshot_date,
     ds.sku_key,
     dd.distributor_key,
-    st.stock_slof,
-    st.unit_cost_slof
-FROM silver.distributor_stock st
-JOIN gold.dim_sku ds         ON st.sku_id = ds.sku_id
-JOIN gold.dim_distributor dd ON st.distributor_id = dd.distributor_id AND dd.is_current = TRUE;
+    st.st_stock_slof     AS stock_slof,
+    st.st_unit_cost_slof AS unit_cost_slof
+FROM bronze.distributor_stock st
+JOIN silver.dim_sku ds         ON st.st_sku_id = ds.sku_id
+JOIN silver.dim_distributor dd ON st.st_distributor_id = dd.distributor_id
+                              AND dd.is_current = TRUE;
 
 -- simulate a second day of snapshots
 CREATE OR REPLACE TABLE sandbox.stock_two_days AS
-SELECT * FROM gold.fact_stock_snapshot
+SELECT * FROM silver.fact_stock_snapshot
 UNION ALL
 SELECT snapshot_date - 1, sku_key, distributor_key, stock_slof, unit_cost_slof
-FROM gold.fact_stock_snapshot;
+FROM silver.fact_stock_snapshot;
 
 SELECT 'catch-up done' AS status;
