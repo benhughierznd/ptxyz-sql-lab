@@ -842,6 +842,8 @@ async function refreshTables() {
     `SELECT schema_name, table_name, estimated_size, comment FROM duckdb_tables() WHERE ${db}`)).toArray();
   const views = (await conn.query(
     `SELECT schema_name, view_name FROM duckdb_views() WHERE NOT internal AND ${db}`)).toArray();
+  const schemaRows = (await conn.query(
+    `SELECT schema_name FROM duckdb_schemas() WHERE NOT internal AND ${db}`)).toArray();
   const columns = (await conn.query(
     `SELECT schema_name, table_name, column_name, data_type FROM duckdb_columns() WHERE ${db} ` +
     "ORDER BY schema_name, table_name, column_index")).toArray();
@@ -859,6 +861,7 @@ async function refreshTables() {
     (by[t.schema_name] ??= []).push({ name: t.table_name, rows, bytes, cols });
   }
   for (const v of views) (by[v.schema_name] ??= []).push({ name: v.view_name, view: true, cols: colsOf[`${v.schema_name}.${v.view_name}`] ?? [] });
+  for (const r of schemaRows) by[r.schema_name] ??= [];  // a new schema has no tables yet, list it anyway
 
   const rank = (s) => { const i = LAYER_ORDER.indexOf(s); return i === -1 ? 99 : i; };
   const schemas = Object.keys(by).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
@@ -880,7 +883,7 @@ async function refreshTables() {
     }).join("");
     const key = `s:${s}`;
     return `<details class="schema" data-key="${esc(key)}" ${openNodes.has(key) ? "open" : ""}>` +
-      `<summary>${esc(s)}<span class="meta">${items.length} ${items.length === 1 ? "object" : "objects"} · ${fmtBytes(bytes)}</span></summary>${inner}</details>`;
+      `<summary>${esc(s)}<span class="meta">${items.length ? `${items.length} ${items.length === 1 ? "object" : "objects"} · ${fmtBytes(bytes)}` : "empty"}</span></summary>${inner}</details>`;
   }).join("") + `<p class="size-note">Size = rows × row width, uncompressed. DuckDB compresses most columns, so real memory use is lower.</p>`
     : "<p>No tables yet.</p>";
   for (const d of $("tables").querySelectorAll("details")) {
@@ -989,7 +992,8 @@ async function catchUp() {
 async function resetAll() {
   if (!confirm("Delete every table in this browser, including the PT XYZ data?")) return;
   setBusy(true);
-  for (const s of ["bronze", "silver", "gold", "sandbox", "source", "lab"]) await conn.query(`DROP SCHEMA IF EXISTS ${s} CASCADE`);
+  await dropOwnObjects();  // every schema and table of the participant, including ones they named
+  for (const s of ["source", "lab"]) await conn.query(`DROP SCHEMA IF EXISTS ${s} CASCADE`);
   await refreshTables();
   $("log").innerHTML = "";
   $("result").innerHTML = "";
