@@ -55,7 +55,7 @@ SELECT ROW_NUMBER() OVER (ORDER BY sk_sku_id) AS sku_key,
        sk_sku_id AS sku_id, sk_name AS sku_name, sk_brand AS brand
 FROM bronze.sku;
 
--- one row per distributor version (ready for SCD Type 2 in Lab 4)
+-- one row per distributor version (ready for SCD Type 2 in Lab 3)
 CREATE OR REPLACE TABLE silver.dim_distributor AS
 SELECT
     ROW_NUMBER() OVER (ORDER BY d.dt_distributor_id) AS distributor_key,
