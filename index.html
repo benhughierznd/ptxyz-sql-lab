@@ -1026,8 +1026,13 @@ async function runScript(sql, { showLog = true, progress = false } = {}) {
   return !failed;
 }
 
+// Played on every Run. Linked from myinstants, not copied into this repo.
+const runSound = new Audio("https://www.myinstants.com/media/sounds/hidup-jokowi.mp3");
+
 async function runEditor() {
   if (busy) return;
+  runSound.currentTime = 0;
+  runSound.play().catch(() => {});  // no sound (offline, blocked) never stops the query
   const ta = $("sql");
   const sel = ta.value.slice(ta.selectionStart, ta.selectionEnd);
   $("log").innerHTML = "";
