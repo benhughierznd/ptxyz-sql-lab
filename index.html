@@ -398,7 +398,7 @@
       <div class="statusbar">
         <span id="status" class="busy">Loading DuckDB...</span>
         <span class="chip">DuckDB-WASM</span>
-        <span class="hint">Ctrl+Enter runs everything, or only the selected text</span>
+        <span class="hint">Ctrl+Enter or Alt+X runs everything, or only the selected text</span>
       </div>
     </section>
     <section class="window">
@@ -1352,7 +1352,8 @@ ta.addEventListener("input", paint);
 ta.addEventListener("scroll", syncScroll);
 paint();
 ta.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); runEditor(); }
+  const altX = e.altKey && !e.ctrlKey && !e.metaKey && e.code === "KeyX";  // as in DBeaver
+  if ((e.key === "Enter" && (e.ctrlKey || e.metaKey)) || altX) { e.preventDefault(); runEditor(); }
   if (e.key === "Tab") {
     e.preventDefault();
     const s = ta.selectionStart;
