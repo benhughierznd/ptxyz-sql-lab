@@ -183,6 +183,8 @@
   aside #savepoints .btn { width: auto; padding: 7px 8px; font-size: 11px; }
   #savepoints .btn svg { display: block; }
   .progress { height: 10px; border: 2px solid var(--line); margin-top: 10px; display: none; background: var(--soft); }
+  .script-note { margin: 14px 0 8px !important; }
+  aside #day2 { width: 100%; }
   .progress div { height: 100%; width: 0; background: var(--sky); transition: width .2s; }
 
   /* ---------------------------------------------------------------- schema browser */
@@ -383,6 +385,8 @@
         <p>Builds the PT XYZ data and every table of Day 1 (bronze, the silver star, the gold mart) in this browser. Takes about 30 seconds.</p>
         <button id="build" class="btn primary" disabled>Build PT XYZ data</button>
         <div class="progress" id="progress"><div></div></div>
+        <p class="script-note">Day 2: every query of the day in a new sheet. Select one query and press Ctrl+Enter.</p>
+        <button id="day2" class="btn">Open Day 2 script</button>
       </div>
     </section>
     <section class="card">
@@ -1608,6 +1612,22 @@ $("sheets").addEventListener("click", (e) => {
 });
 ta.addEventListener("input", saveSheets);
 renderSheets();
+
+// A prepared script (day2.sql) opens in its own sheet; opening it again goes back to that sheet.
+async function openScript(path) {
+  let sql;
+  try { sql = await fetchText(path); } catch (err) { logLine(path, null, err); return; }
+  saveSheets();
+  const same = sheets.findIndex((x) => x.sql === sql);
+  if (same >= 0) return openSheet(same);
+  if (sheets.length >= MAX_SHEETS) {
+    if (!confirm(`All ${MAX_SHEETS} sheets are in use. Replace SQL ${active + 1} with the script?`)) return;
+    sheets[active] = { sql };
+    return loadSheet(active);
+  }
+  sheets.push({ sql });
+  openSheet(sheets.length - 1);
+}
 const paint = () => { hl.innerHTML = highlightSql(ta.value) + "\n"; syncScroll(); };
 const syncScroll = () => { hl.scrollTop = ta.scrollTop; hl.scrollLeft = ta.scrollLeft; };
 ta.addEventListener("input", paint);
@@ -1626,6 +1646,7 @@ ta.addEventListener("keydown", (e) => {
 });
 $("run").onclick = runEditor;
 $("build").onclick = buildData;
+$("day2").onclick = () => openScript("day2.sql");
 $("reset").onclick = resetAll;
 $("sp-save").onclick = saveSavepoint;
 $("sp-name").addEventListener("keydown", (e) => { if (e.key === "Enter") saveSavepoint(); });

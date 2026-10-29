@@ -39,6 +39,7 @@ All names and numbers are synthetic.
 |---|---|
 | `index.html` | The lab page |
 | `00_setup_source.sql` | Builds the `source` schema (operational tables) and the two `lab` tables used for the pruning exercise |
+| `day2.sql` | Every query participants run on Day 2, opened in a new sheet by **Open Day 2 script** |
 | `catchup/catchup_before_day2.sql` | Every Day 1 table (bronze, silver, gold); the Build button runs it after `00_setup_source.sql` |
 | `table_docs.json` | Description, primary key and foreign keys of every training table, shown in the Schema panel and the ERD |
 
