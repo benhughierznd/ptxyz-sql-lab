@@ -159,8 +159,6 @@
   .btn:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 3px solid var(--yellow); outline-offset: 1px; }
   aside .btn, aside select { width: 100%; }
   aside select + .btn { margin-top: 8px; }
-  .card-body .cu-desc { margin: 8px 0 0; font-size: 12.5px; }
-  .card-body .cu-desc + .btn { margin-top: 8px; }
   input[type="text"] {
     min-width: 0;
     font: 14px var(--sans);
@@ -370,28 +368,13 @@
     <section class="card">
       <div class="card-head"><span class="num">1</span>Training data</div>
       <div class="card-body">
-        <p>Builds the PT XYZ source tables in this browser. Takes about 15 seconds, once.</p>
+        <p>Builds the PT XYZ data and every table of Day 1 (bronze, the silver star, the gold mart) in this browser. Takes about 30 seconds.</p>
         <button id="build" class="btn primary" disabled>Build PT XYZ data</button>
         <div class="progress" id="progress"><div></div></div>
       </div>
     </section>
     <section class="card">
-      <div class="card-head"><span class="num">2</span>Catch up</div>
-      <div class="card-body">
-        <p>Closed the tab, or fell behind? Choose the lab you are about to start. The page builds every table the earlier labs make, in about 20 seconds.</p>
-        <select id="checkpoint" disabled aria-label="Lab you are about to start">
-          <option value="" data-desc="Lab 0 and Lab 1 only need the PT XYZ data: no catch-up needed.">I am about to start...</option>
-          <option value="catchup/catchup_before_lab2.sql" data-desc="Builds what Labs 0-1 make: the layer schemas and bronze (8 tables).">Lab 2 · Build the silver star</option>
-          <option value="catchup/catchup_before_lab3.sql" data-desc="Builds Labs 0-2: bronze, the silver star (dim_sku, dim_distributor, fact_sales_line) and the snowflake tables in sandbox.">Lab 3 · SCD Type 2</option>
-          <option value="catchup/catchup_before_case_study.sql" data-desc="Builds Labs 0-3: everything for Lab 3, plus the Type 2 change of distributor 42 and silver.fact_stock_snapshot.">Day 1 Case Study</option>
-          <option value="catchup/catchup_before_day2.sql" data-desc="Builds all of Day 1, including the Case Study: silver.dim_outlet, segment on dim_sku and the gold mart gold.mart_sales_outlet_region_month.">Day 2 · all of Day 1</option>
-        </select>
-        <p class="cu-desc" id="cu-desc"></p>
-        <button id="catchup" class="btn" disabled>Run catch-up</button>
-      </div>
-    </section>
-    <section class="card">
-      <div class="card-head"><span class="num">3</span>Save point</div>
+      <div class="card-head"><span class="num">2</span>Save point</div>
       <div class="card-body">
         <p>Saves your own tables (everything except source and lab) in this browser. Download a copy to move to another laptop.</p>
         <div class="sp-row">
@@ -1113,7 +1096,7 @@ async function refreshTables() {
 // ---------------------------------------------------------------- actions
 function setBusy(on) {
   busy = on;
-  for (const id of ["run", "build", "catchup", "checkpoint", "reset"]) $(id).disabled = on;
+  for (const id of ["run", "build", "reset"]) $(id).disabled = on;
   for (const el of document.querySelectorAll("#sp-name, #sp-save, #sp-upload, #savepoints button")) el.disabled = on || !hasOpfs;
 }
 
@@ -1186,38 +1169,23 @@ function showNote(text) {
   syncEmpty();
 }
 
+// Day 1 is over: Build makes the source data and every table the Day 1 labs made.
 async function buildData() {
+  if (hasLayers && !confirm("Rebuild resets every Day 1 table (bronze, silver, gold and the Day 1 sandbox tables) to the end of Day 1. Your changes to them are lost; tables you made yourself stay. Continue?")) return false;
   setBusy(true);
   $("log").innerHTML = "";
   setStatus("Building PT XYZ data...", "busy");
   const t0 = performance.now();
   let ok = false;
   try {
-    ok = await runScript(await fetchText("00_setup_source.sql"), { showLog: false, progress: true });
+    const sql = (await fetchText("00_setup_source.sql")) + "\n" + (await fetchText("catchup/catchup_before_day2.sql"));
+    ok = await runScript(sql, { showLog: false, progress: true });
   } catch (err) { logLine("build", null, err); }
   await refreshTables();
   setBusy(false);
   setStatus(readyText(), "ready");
-  if (ok) showNote(`PT XYZ data built in ${((performance.now() - t0) / 1000).toFixed(1)} s.`);
+  if (ok) showNote(`PT XYZ data and all Day 1 tables built in ${((performance.now() - t0) / 1000).toFixed(1)} s.`);
   return ok;
-}
-
-async function catchUp() {
-  const path = $("checkpoint").value;
-  if (!path) return;
-  const hasSource = await refreshTables();
-  if (!hasSource && !(await buildData())) return;
-  setBusy(true);
-  $("log").innerHTML = "";
-  setStatus("Catching up...", "busy");
-  let ok = false;
-  try {
-    ok = await runScript(await fetchText(path), { showLog: false, progress: true });
-  } catch (err) { logLine("catch-up", null, err); }
-  await refreshTables();
-  setBusy(false);
-  setStatus(readyText(), "ready");
-  if (ok) showNote(`Done. You are ready to start ${$("checkpoint").selectedOptions[0].text.replace(" · ", ": ")}.`);
 }
 
 async function resetAll() {
@@ -1283,7 +1251,7 @@ async function saveSavepoint() {
   setStatus("Saving...", "busy");
   try {
     const tables = (await conn.query(`SELECT schema_name, table_name, sql, comment FROM duckdb_tables() WHERE ${SP_OWN}`)).toArray();
-    if (!tables.length) throw new Error("No tables of your own yet. Catch up or create a table first, then save.");
+    if (!tables.length) throw new Error("No tables of your own yet. Build the data or create a table first, then save.");
     const colComments = (await conn.query(
       `SELECT schema_name, table_name, column_name, comment FROM duckdb_columns() WHERE comment IS NOT NULL AND ${SP_OWN}`)).toArray();
     const views = (await conn.query(`SELECT schema_name, view_name, sql, comment FROM duckdb_views() WHERE NOT internal AND ${SP_OWN}`)).toArray();
@@ -1437,7 +1405,7 @@ async function listSavepoints() {
 }
 
 function readyText() {
-  return "Ready · tables live in this tab: after closing it, use Catch up";
+  return "Ready · tables live in this tab: after closing it, build the data again";
 }
 
 // Closing the tab loses the tables: ask first once the participant has built layers.
@@ -1551,10 +1519,6 @@ ta.addEventListener("keydown", (e) => {
 });
 $("run").onclick = runEditor;
 $("build").onclick = buildData;
-$("catchup").onclick = catchUp;
-const showCatchupDesc = () => { $("cu-desc").textContent = $("checkpoint").selectedOptions[0].dataset.desc; };
-$("checkpoint").addEventListener("change", showCatchupDesc);
-showCatchupDesc();
 $("reset").onclick = resetAll;
 $("sp-save").onclick = saveSavepoint;
 $("sp-name").addEventListener("keydown", (e) => { if (e.key === "Enter") saveSavepoint(); });
@@ -1574,7 +1538,7 @@ try {
   db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING), new Worker(workerUrl));
   await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
   // In memory on purpose: this build reports rows scanned correctly, and its OPFS storage
-  // does not persist yet. A closed tab is fixed with one click on "Run catch-up".
+  // does not persist yet. A closed tab is fixed with one click on "Build PT XYZ data".
   await db.open({ query: { castBigIntToDouble: true, castDecimalToDouble: true } });
   conn = await db.connect();
   try { docs = JSON.parse(await fetchText("table_docs.json")); } catch {}
