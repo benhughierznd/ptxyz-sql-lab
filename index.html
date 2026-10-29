@@ -331,6 +331,18 @@
   .plan-steps .rows { font: 12px/1.6 var(--mono); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .plan-steps .rows b { color: var(--accent); font-weight: 500; }
   @media (max-width: 700px) { .plan-steps li { grid-template-columns: 30px minmax(0, 1fr); } .plan-steps .rows { grid-column: 2; text-align: left; } }
+  .plan-switch { display: flex; gap: 0; padding: 10px 14px 0; }
+  .plan-switch button { background: none; color: var(--muted); border: 1.5px solid var(--line); padding: 5px 12px; font: 500 12px var(--mono); text-transform: uppercase; letter-spacing: .04em; cursor: pointer; }
+  .plan-switch button + button { border-left: 0; }
+  .plan-switch button[aria-selected="true"] { background: var(--ink); color: var(--bg); }
+  .sf-plan { overflow-x: auto; margin-top: 10px; }
+  .sf-plan table { font-size: 12px; }
+  .sf-plan th { text-transform: none; letter-spacing: 0; font-size: 12px; }
+  .sf-plan th, .sf-plan td { padding: 5px 10px; }
+  .sf-plan td { white-space: nowrap; }
+  .sf-plan td:nth-child(7) { white-space: normal; min-width: 340px; max-width: 460px; overflow-wrap: break-word; }
+  .sf-plan .null { color: var(--muted); opacity: .7; }
+  .sf-plan + .note { padding-top: 6px; }
   .plan-raw { border-top: 1px solid var(--hair); }
   .plan-raw > summary { padding: 9px 14px; cursor: pointer; font: 12px var(--mono); color: var(--muted); }
   .note { color: var(--muted); font: 13px var(--mono); padding: 9px 14px; }
@@ -439,6 +451,7 @@ let db = null;
 let busy = false;
 let catalog = {};        // "schema.table" -> [{name, type}]
 let tableComments = {};  // "schema.table" -> COMMENT ON TABLE text
+let tableStats = {};     // "schema.table" -> {rows, bytes}
 let docs = {};           // table_docs.json: "schema.table" -> {comment, pk, fk}
 
 function setStatus(text, kind) {
@@ -507,8 +520,17 @@ async function runProfiled(sql) {
   if (explain) {
     // The same plan as JSON, drawn as numbered steps. EXPLAIN ANALYZE runs the query a second time for it.
     try {
-      const json = (await conn.query(`EXPLAIN (${explain[1] ? "ANALYZE, " : ""}FORMAT JSON) ${body.slice(explain[0].length)}`)).toArray()[0];
-      planOf.set(table, { analyze: !!explain[1], json: JSON.parse(json.explain_value) });
+      const query = body.slice(explain[0].length);
+      const json = (await conn.query(`EXPLAIN (${explain[1] ? "ANALYZE, " : ""}FORMAT JSON) ${query}`)).toArray()[0];
+      const plan = { analyze: !!explain[1], json: JSON.parse(json.explain_value) };
+      planOf.set(table, plan);
+      if (READ_ONLY.test(query)) {
+        // Snowflake prunes partitions at compile time; DuckDB skips row groups while it runs,
+        // so the Snowflake-style table runs the query once to measure them.
+        plan.measured = plan.analyze ? plan.json
+          : JSON.parse((await conn.query(`EXPLAIN (ANALYZE, FORMAT JSON) ${query}`)).toArray()[0].explain_value);
+        plan.columns = (await conn.query(`DESCRIBE ${query}`)).toArray().map((r) => r.column_name);
+      }
     } catch {}
   }
   if (!READ_ONLY.test(body)) return { table, seconds: wall, rowsScanned: null };
@@ -585,6 +607,76 @@ const OPERATORS = {
 // Projections that only pass columns through are hidden, so the steps show the real work.
 const PASS_THROUGH = /^(#\d+|__internal_\w+\(#\d+\)|[A-Za-z_][\w.]*)$/;
 
+// The plan in the columns of Snowflake's EXPLAIN. Partitions are DuckDB row groups (122,880 rows).
+const SF_OPERATION = {
+  SEQ_SCAN: "TableScan", TABLE_SCAN: "TableScan", FILTER: "Filter", CROSS_PRODUCT: "CartesianJoin",
+  HASH_GROUP_BY: "Aggregate", PERFECT_HASH_GROUP_BY: "Aggregate", UNGROUPED_AGGREGATE: "Aggregate", SIMPLE_AGGREGATE: "Aggregate",
+  ORDER_BY: "Sort", TOP_N: "SortWithLimit", LIMIT: "Limit", STREAMING_LIMIT: "Limit", WINDOW: "WindowFunction",
+  STREAMING_WINDOW: "WindowFunction", UNION: "UnionAll", CTE: "WithClause", CTE_SCAN: "WithReference",
+};
+const SF_JOIN = { INNER: "InnerJoin", LEFT: "LeftOuterJoin", RIGHT: "RightOuterJoin", OUTER: "FullOuterJoin", FULL: "FullOuterJoin",
+  SEMI: "SemiJoin", ANTI: "AntiJoin", MARK: "SemiJoin", SINGLE: "LeftOuterJoin" };
+
+function planTable({ json, measured, columns }) {
+  const tree = measured ?? json;
+  let root = Array.isArray(tree) ? tree[0] : tree.children?.[0];
+  if (root?.operator_type === "EXPLAIN_ANALYZE") root = root.children?.[0];
+  const rows = [];
+  const add = (parent, operation, objects, expressions, parts) => {
+    rows.push({ id: rows.length, parent, operation, objects, expressions, parts });
+    return rows.length - 1;
+  };
+  const list = (v) => [].concat(v ?? []).join(", ");
+  const visit = (node, parent) => {
+    const type = node.operator_type ?? node.name;
+    const info = node.extra_info ?? {};
+    const kids = node.children ?? [];
+    if (type === "PROJECTION") { kids.forEach((k) => visit(k, parent)); return; }  // Snowflake folds these into the parent
+    let id;
+    if (type === "SEQ_SCAN" || type === "TABLE_SCAN") {
+      if (info.Filters) parent = add(parent, "Filter", null, list(info.Filters));
+      const name = String(info.Table ?? "").replace(/^memory\./, "").replaceAll('"', "");
+      const stats = tableStats[name];
+      let parts = null;
+      if (stats && node.operator_rows_scanned !== undefined) {
+        const total = Math.max(1, Math.ceil(stats.rows / ROW_GROUP));
+        const assigned = Math.min(total, Math.ceil(Number(node.operator_rows_scanned) / ROW_GROUP));
+        parts = { total, assigned, bytes: stats.bytes === null ? null : Math.round(stats.bytes * assigned / total) };
+      }
+      id = add(parent, "TableScan", name, list(info.Projections), parts);
+    } else if (/JOIN/.test(type) && type !== "CROSS_PRODUCT") {
+      id = add(parent, SF_JOIN[info["Join Type"]] ?? "InnerJoin", null, `joinKey: (${list(info.Conditions)})`);
+    } else if (SF_OPERATION[type] === "Aggregate") {
+      id = add(parent, "Aggregate", null, [info.Aggregates && `aggExprs: [${list(info.Aggregates)}]`, info.Groups && `groupKeys: [${list(info.Groups)}]`].filter(Boolean).join(", "));
+    } else if (type === "ORDER_BY" || type === "TOP_N") {
+      const extra = Object.entries(info).filter(([k]) => !["Order By", "Estimated Cardinality"].includes(k)).map(([k, v]) => `${k}: ${list(v)}`);
+      id = add(parent, SF_OPERATION[type], null, [`sortKeys: [${list(info["Order By"])}]`, ...extra].join(", "));
+    } else {
+      const extra = Object.entries(info).filter(([k]) => k !== "Estimated Cardinality").map(([k, v]) => `${k}: ${list(v)}`).join(", ");
+      id = add(parent, SF_OPERATION[type] ?? type.toLowerCase().replace(/(^|_)(\w)/g, (_, _u, c) => c.toUpperCase()), null, extra || null);
+    }
+    kids.forEach((k) => visit(k, id));
+  };
+  const result = add(null, "Result", null, columns?.length ? columns.join(", ") : null);
+  if (root) visit(root, result);
+
+  const scans = rows.filter((r) => r.parts);
+  const sum = (k) => scans.length ? scans.reduce((t, r) => t + (r.parts[k] ?? 0), 0) : null;
+  const global = { operation: "GlobalStats", parts: scans.length ? { total: sum("total"), assigned: sum("assigned"), bytes: sum("bytes") } : null };
+  const NULL = `<span class="null">NULL</span>`;
+  const cell = (v, num) => `<td${num ? ' class="num"' : ""}>${v === null || v === undefined ? NULL : esc(v)}</td>`;
+  const line = (r, step) => "<tr>" + cell(step) + cell(r.id ?? null, true) + cell(r.parent ?? null, true) + cell(r.operation) +
+    cell(r.objects ?? null) + cell(null) + cell(r.expressions ?? null) +
+    cell(r.parts ? fmtInt(r.parts.total) : null, true) + cell(r.parts ? fmtInt(r.parts.assigned) : null, true) +
+    cell(r.parts && r.parts.bytes !== null ? fmtInt(r.parts.bytes) : null, true) + "</tr>";
+  const head = ["step", "id", "parent", "operation", "objects", "alias", "expressions", "partitionsTotal", "partitionsAssigned", "bytesAssigned"];
+  return `<div class="sf-plan"><table><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>` +
+    line(global, null) + rows.map((r) => line(r, 1)).join("") + "</tbody></table></div>" +
+    `<p class="note">Same columns as Snowflake EXPLAIN. Partitions are DuckDB row groups of ${fmtInt(ROW_GROUP)} rows, ` +
+    `measured by running the query once; bytesAssigned is the uncompressed size of those row groups. ` +
+    `#0, #1 are the 1st, 2nd column coming from the operation below; alias is not kept by DuckDB.</p>`;
+}
+
 function planSteps({ analyze, json }) {
   let root = analyze ? json.children?.[0] : json[0];
   if (analyze && root?.operator_type === "EXPLAIN_ANALYZE") root = root.children?.[0];
@@ -642,9 +734,20 @@ function renderTable(table) {
   if (fields.length === 2 && fields[0].name === "explain_key") {
     const raw = table.toArray().map((r) => `<pre class="plan">${esc(r.explain_value)}</pre>`).join("");
     const plan = planOf.get(table);
-    box.innerHTML = plan
-      ? planSteps(plan) + `<details class="plan-raw"><summary>DuckDB text plan (read from the bottom up)</summary>${raw}</details>`
-      : raw;
+    if (!plan) { box.innerHTML = raw; return; }
+    let pick = "table";
+    try { pick = localStorage.getItem("ptxyz-plan-view") || pick; } catch {}
+    box.innerHTML = `<div class="plan-switch" role="tablist">` +
+      `<button data-plan="table" role="tab">Snowflake table</button><button data-plan="steps" role="tab">Steps, explained</button></div>` +
+      `<div data-pane="table">${planTable(plan)}</div><div data-pane="steps">${planSteps(plan)}</div>` +
+      `<details class="plan-raw"><summary>DuckDB text plan (read from the bottom up)</summary>${raw}</details>`;
+    const show = (v) => {
+      for (const b of box.querySelectorAll("[data-plan]")) b.setAttribute("aria-selected", b.dataset.plan === v);
+      for (const d of box.querySelectorAll("[data-pane]")) d.hidden = d.dataset.pane !== v;
+      try { localStorage.setItem("ptxyz-plan-view", v); } catch {}
+    };
+    for (const b of box.querySelectorAll("[data-plan]")) b.onclick = () => show(b.dataset.plan);
+    show(pick === "steps" ? "steps" : "table");
     return;
   }
   if (!fields.length) { box.innerHTML = ""; return; }
@@ -1027,6 +1130,7 @@ async function refreshTables() {
     let bytes = null;
     try { bytes = await tableBytes(t.schema_name, t.table_name, rows, cols); } catch {}
     (by[t.schema_name] ??= []).push({ name: t.table_name, rows, bytes, cols, sql: t.sql });
+    tableStats[`${t.schema_name}.${t.table_name}`] = { rows, bytes };
   }
   for (const v of views) (by[v.schema_name] ??= []).push({ name: v.view_name, view: true, cols: colsOf[`${v.schema_name}.${v.view_name}`] ?? [], sql: v.sql });
   for (const m of macros) {
