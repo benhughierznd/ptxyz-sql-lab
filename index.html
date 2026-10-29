@@ -317,7 +317,24 @@
   th, td { padding: 6px 12px; border-bottom: 1px solid var(--hair); text-align: left; white-space: nowrap; }
   th { position: sticky; top: 0; background: var(--bg); border-bottom: 2px solid var(--line); font-weight: 500; text-transform: uppercase; letter-spacing: .03em; font-size: 12px; }
   td.num { text-align: right; }
-  pre.plan { margin: 0; padding: 14px; font: 13px/1.0 "Cascadia Mono", Consolas, "Courier New", monospace; white-space: pre; -webkit-font-smoothing: antialiased; }
+  pre.plan { margin: 0; padding: 14px; font: 12px/1.0 "Cascadia Mono", Consolas, "Courier New", monospace; white-space: pre; -webkit-font-smoothing: antialiased; }
+  .plan-steps { padding: 12px 14px 4px; }
+  .plan-how { margin: 0 0 10px; font-size: 13.5px; color: var(--muted); max-width: 90ch; }
+  .plan-how b { color: var(--ink); font-weight: 600; }
+  .plan-steps ol { list-style: none; margin: 0; padding: 0; }
+  .plan-steps li { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 4px 12px; padding: 10px 0; border-top: 1px solid var(--hair); }
+  .plan-steps .num { width: 24px; height: 24px; border-radius: 50%; background: var(--yellow); color: #383838; font: 500 12px/24px var(--mono); text-align: center; }
+  .plan-steps .title { font-weight: 600; }
+  .plan-steps .title code { font: 11px var(--mono); color: var(--muted); margin-left: 8px; }
+  .plan-steps .title .tag { font: 10.5px var(--mono); padding: 0 4px; border: 1px solid var(--line); text-transform: uppercase; margin-left: 8px; }
+  .plan-steps p { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
+  .plan-steps .details { margin-top: 4px; font: 12px/1.5 var(--mono); overflow-wrap: anywhere; }
+  .plan-steps .details span { color: var(--muted); }
+  .plan-steps .rows { font: 12px/1.6 var(--mono); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .plan-steps .rows b { color: var(--accent); font-weight: 500; }
+  @media (max-width: 700px) { .plan-steps li { grid-template-columns: 30px minmax(0, 1fr); } .plan-steps .rows { grid-column: 2; text-align: left; } }
+  .plan-raw { border-top: 1px solid var(--hair); }
+  .plan-raw > summary { padding: 9px 14px; cursor: pointer; font: 12px var(--mono); color: var(--muted); }
   .note { color: var(--muted); font: 13px var(--mono); padding: 9px 14px; }
   .empty-out { padding: 18px 14px; color: var(--muted); font: 13px var(--mono); }
   #erd { border-top: 2px solid var(--line); }
@@ -503,6 +520,14 @@ async function runProfiled(sql) {
   const t0 = performance.now();
   const table = await conn.query(sql);
   const wall = (performance.now() - t0) / 1000;
+  const explain = /^EXPLAIN\s+(ANALYZE\s+)?(?!\()/i.exec(body);  // a plain EXPLAIN [ANALYZE], no options
+  if (explain) {
+    // The same plan as JSON, drawn as numbered steps. EXPLAIN ANALYZE runs the query a second time for it.
+    try {
+      const json = (await conn.query(`EXPLAIN (${explain[1] ? "ANALYZE, " : ""}FORMAT JSON) ${body.slice(explain[0].length)}`)).toArray()[0];
+      planOf.set(table, { analyze: !!explain[1], json: JSON.parse(json.explain_value) });
+    } catch {}
+  }
   if (!READ_ONLY.test(body)) return { table, seconds: wall, rowsScanned: null };
   try {
     const plan = (await conn.query(`EXPLAIN (ANALYZE, FORMAT JSON) ${body}`)).toArray()[0];
@@ -546,12 +571,97 @@ function fmtValue(v, type) {
   return String(v);
 }
 
+// ---------------------------------------------------------------- EXPLAIN as steps
+const planOf = new WeakMap();  // result table of an EXPLAIN -> its JSON plan
+const OPERATORS = {
+  SEQ_SCAN: ["Read a table", "Reads the table from storage. Filters here drop rows while reading, and row groups whose min/max cannot match are skipped."],
+  TABLE_SCAN: ["Read a table", "Reads the table from storage. Filters here drop rows while reading, and row groups whose min/max cannot match are skipped."],
+  READ_CSV: ["Read a file", "Reads a CSV file."],
+  FILTER: ["Keep matching rows", "Drops the rows that fail the condition."],
+  PROJECTION: ["Compute columns", "Computes the columns the next step needs."],
+  HASH_JOIN: ["Join (hash join)", "Builds a lookup table from one input, then probes it with every row of the other: fast for equality joins."],
+  NESTED_LOOP_JOIN: ["Join (nested loop)", "Compares every row with every row: slow when both inputs are big."],
+  BLOCKWISE_NL_JOIN: ["Join (nested loop)", "Compares every row with every row: slow when both inputs are big."],
+  PIECEWISE_MERGE_JOIN: ["Join (merge join)", "Sorts both inputs to join on a range condition."],
+  CROSS_PRODUCT: ["Cross join", "Pairs every row with every row: rows multiply."],
+  HASH_GROUP_BY: ["Group and aggregate", "Puts rows into groups and computes SUM, COUNT, ... per group."],
+  PERFECT_HASH_GROUP_BY: ["Group and aggregate", "Puts rows into groups and computes SUM, COUNT, ... per group."],
+  UNGROUPED_AGGREGATE: ["Aggregate everything", "Computes SUM, COUNT, ... over all rows into one row."],
+  SIMPLE_AGGREGATE: ["Aggregate everything", "Computes SUM, COUNT, ... over all rows into one row."],
+  ORDER_BY: ["Sort", "Sorts all rows."],
+  TOP_N: ["Sort and keep the top rows", "Keeps only the first rows of the sort order (ORDER BY ... LIMIT)."],
+  LIMIT: ["Limit", "Stops after the first rows."],
+  STREAMING_LIMIT: ["Limit", "Stops after the first rows."],
+  WINDOW: ["Window function", "Computes OVER (...) values for every row."],
+  STREAMING_WINDOW: ["Window function", "Computes OVER (...) values for every row."],
+  UNION: ["Append", "Stacks the rows of its inputs."],
+  CTE: ["Common table expression", "Computes a WITH block once."],
+  CTE_SCAN: ["Read a WITH block", "Reads the rows of a WITH block."],
+  EMPTY_RESULT: ["Empty result", "The optimizer proved that no row can match."],
+};
+// Projections that only pass columns through are hidden, so the steps show the real work.
+const PASS_THROUGH = /^(#\d+|__internal_\w+\(#\d+\)|[A-Za-z_][\w.]*)$/;
+
+function planSteps({ analyze, json }) {
+  let root = analyze ? json.children?.[0] : json[0];
+  if (analyze && root?.operator_type === "EXPLAIN_ANALYZE") root = root.children?.[0];
+  const steps = [];
+  const visit = (node) => {  // children first: the step numbers follow the order of execution
+    const inputs = (node.children ?? []).map(visit).filter(Boolean);
+    const type = node.operator_type ?? node.name;
+    const info = node.extra_info ?? {};
+    const proj = [].concat(info.Projections ?? []);
+    if (type === "PROJECTION" && proj.every((x) => PASS_THROUGH.test(x))) return inputs[0];
+    steps.push({ type, info, inputs, node });
+    return steps.length;
+  };
+  visit(root);
+  const rowsOf = (st) => Number(analyze ? st.node.operator_cardinality : st.info["Estimated Cardinality"]);
+  const total = analyze ? steps.reduce((t, st) => t + Number(st.node.operator_timing || 0), 0) : 0;
+  const maxRows = Math.max(...steps.map(rowsOf).filter((n) => !Number.isNaN(n)));
+  const detail = (label, v) => (v === undefined || v === "" || (Array.isArray(v) && !v.length)) ? ""
+    : `<div><span>${esc(label)}</span> ${esc([].concat(v).join(", "))}</div>`;
+  const items = steps.map((st, i) => {
+    const [title, what] = OPERATORS[st.type] ?? [st.type.replaceAll("_", " ").toLowerCase(), ""];
+    const rows = rowsOf(st);
+    const read = analyze && st.node.operator_rows_scanned ? Number(st.node.operator_rows_scanned) : null;
+    const time = analyze ? Number(st.node.operator_timing || 0) : null;
+    const info = st.info;
+    const details = [
+      detail("Table", info.Table?.replace(/^memory\./, "").replaceAll('"', "")),
+      detail("Filter", info.Filters),
+      detail("Join", [info["Join Type"], info.Conditions].filter(Boolean).join(" on ")),
+      detail("Group by", info.Groups),
+      detail("Compute", info.Aggregates ?? (st.type === "PROJECTION" ? info.Projections : undefined)),
+      detail("Order by", info["Order By"]),
+      detail("Inputs", st.inputs.length > 1 ? st.inputs.map((n) => `step ${n}`).join(" and ") : undefined),
+    ].join("");
+    const metrics = [
+      Number.isNaN(rows) ? "" : `<b>${analyze ? "" : "~"}${fmtInt(Math.round(rows))}</b> rows out`,
+      read !== null ? `${fmtInt(read)} rows read` : "",
+      time !== null ? `${fmtSeconds(time)}${total ? ` · ${Math.round((time / total) * 100)}% of time` : ""}` : "",
+    ].filter(Boolean).join("<br>");
+    const most = rows === maxRows && steps.length > 1 ? `<span class="tag">most rows</span>` : "";
+    return `<li><span class="num">${i + 1}</span><div><div class="title">${esc(title)}<code>${esc(st.type)}</code>${most}</div>` +
+      `${what ? `<p>${esc(what)}</p>` : ""}${details ? `<div class="details">${details}</div>` : ""}</div>` +
+      `<div class="rows">${metrics}</div></li>`;
+  }).join("");
+  const how = analyze
+    ? "The query ran. Step 1 runs first and reads the data; each step passes its rows to the next; the last step returns the result. Rows and time are measured. The step with the most rows or the most time is where to tune."
+    : "The query did not run: this is the plan. Step 1 runs first and reads the data; each step passes its rows to the next; the last step returns the result. Rows are the optimizer's estimate (~). Look for big row counts early, and for filters on the read step.";
+  return `<div class="plan-steps"><p class="plan-how"><b>How to read:</b> ${how} ` +
+    `#0, #1, ... are the 1st, 2nd, ... column coming out of the step before.</p><ol>${items}</ol></div>`;
+}
+
 function renderTable(table) {
   const box = $("result");
   const fields = table.schema.fields;
   if (fields.length === 2 && fields[0].name === "explain_key") {
-    const rows = table.toArray();
-    box.innerHTML = rows.map((r) => `<pre class="plan">${esc(r.explain_value)}</pre>`).join("");
+    const raw = table.toArray().map((r) => `<pre class="plan">${esc(r.explain_value)}</pre>`).join("");
+    const plan = planOf.get(table);
+    box.innerHTML = plan
+      ? planSteps(plan) + `<details class="plan-raw"><summary>DuckDB text plan (read from the bottom up)</summary>${raw}</details>`
+      : raw;
     return;
   }
   if (!fields.length) { box.innerHTML = ""; return; }
