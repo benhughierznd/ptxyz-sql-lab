@@ -1026,11 +1026,16 @@ async function runScript(sql, { showLog = true, progress = false } = {}) {
   return !failed;
 }
 
-// Played on every Run. Linked from myinstants, not copied into this repo.
-const runSound = new Audio("https://www.myinstants.com/media/sounds/hidup-jokowi.mp3");
+// Played on every Run: each sound for 3 runs, then the next, then back to the first.
+// The count starts over when the page is reloaded. Linked from myinstants, not copied into this repo.
+const runSounds = ["hidup-jokowi", "hey-antek-antek-asing-prabowo", "jokowi-saya-akan-lawan"]
+  .map((name) => new Audio(`https://www.myinstants.com/media/sounds/${name}.mp3`));
+let runCount = 0;
 
 async function runEditor() {
   if (busy) return;
+  const runSound = runSounds[Math.floor(runCount++ / 3) % runSounds.length];
+  for (const s of runSounds) s.pause();
   runSound.currentTime = 0;
   runSound.play().catch(() => {});  // no sound (offline, blocked) never stops the query
   const ta = $("sql");
