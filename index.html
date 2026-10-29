@@ -27,6 +27,8 @@
     --on-sky: #383838;
     --mono: "DM Mono", Consolas, "Courier New", monospace;
     --sans: Inter, "Segoe UI", Arial, sans-serif;
+    /* SQL colors of the VS Code Light+ theme */
+    --sx-kw: #0000ff; --sx-fn: #795e26; --sx-str: #a31515; --sx-num: #098658; --sx-com: #008000;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
@@ -42,12 +44,15 @@
       --ok: #4cc38a;
       --warn: #ffb04a;
       --error: #ff8a7a;
+      /* SQL colors of the VS Code Dark+ theme */
+      --sx-kw: #569cd6; --sx-fn: #dcdcaa; --sx-str: #ce9178; --sx-num: #b5cea8; --sx-com: #6a9955;
     }
   }
   :root[data-theme="dark"] {
     --bg: #1c1c1c; --panel: #262626; --soft: #2b2b2b; --ink: #ede7e1; --muted: #a9a29b;
     --line: #ede7e1; --hair: #3a3a3a; --sky-band: #1f3a50; --accent: #97d4ff;
     --ok: #4cc38a; --warn: #ffb04a; --error: #ff8a7a;
+    --sx-kw: #569cd6; --sx-fn: #dcdcaa; --sx-str: #ce9178; --sx-num: #b5cea8; --sx-com: #6a9955;
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
@@ -192,16 +197,20 @@
   #tables summary:hover { background: var(--soft); }
   .schema > summary { font: 500 13px var(--mono); text-transform: uppercase; letter-spacing: .03em; }
   .schema > summary .meta { margin-left: auto; font: 12px var(--mono); color: var(--muted); text-transform: none; letter-spacing: 0; }
-  .tbl > summary { padding-left: 30px !important; font-family: var(--mono); }
+  .grp > summary { padding-left: 30px !important; font: 500 11.5px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .grp > summary .meta { margin-left: auto; }
+  .grp-empty { padding: 2px 14px 6px 48px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+  .tbl > summary { padding-left: 46px !important; font-family: var(--mono); }
   .tbl > summary .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .tbl > summary .meta { margin-left: auto; flex: none; color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
   .tbl .tag { font-size: 10.5px; padding: 0 4px; border: 1px solid var(--line); text-transform: uppercase; }
-  .col { display: flex; gap: 8px; padding: 2px 14px 2px 48px; font: 12px var(--mono); }
+  .col { display: flex; gap: 8px; padding: 2px 14px 2px 64px; font: 12px var(--mono); }
   .col .type { margin-left: auto; color: var(--muted); white-space: nowrap; }
   .col:last-child { padding-bottom: 6px; }
-  #tables details.ddl > summary { padding-left: 48px; font: 11px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-  .ddl pre { margin: 2px 14px 8px 48px; padding: 8px 10px; background: var(--soft); border: 1px solid var(--hair); font: 12px/1.5 var(--mono); overflow-x: auto; white-space: pre; user-select: text; }
-  .tbl-note { padding: 2px 14px 4px 48px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+  #tables details.ddl > summary { padding-left: 64px; font: 11px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .ddl pre { margin: 2px 14px 8px 64px; padding: 8px 10px; background: var(--soft); border: 1px solid var(--hair); font: 12px/1.5 var(--mono); overflow-x: auto; white-space: pre; user-select: text; }
+  .ddl pre.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .tbl-note { padding: 2px 14px 4px 64px; color: var(--muted); font-size: 12px; line-height: 1.4; }
   .size-note { margin: 0; padding: 8px 14px 10px; border-top: 1px solid var(--hair); color: var(--muted); font-size: 12px; }
 
   /* ---------------------------------------------------------------- editor window */
@@ -237,6 +246,16 @@
     overflow-wrap: normal;
     overflow-x: auto;
   }
+  /* Syntax colors: the textarea text is transparent and a highlighted copy sits behind it. */
+  .code { position: relative; background: var(--soft); }
+  .code textarea { position: relative; background: transparent; color: transparent; caret-color: var(--ink); }
+  .code textarea::selection { color: transparent; background: rgba(151, 212, 255, .45); }
+  .code pre {
+    position: absolute; inset: 0; margin: 0; overflow: hidden; pointer-events: none;
+    padding: 16px 18px; font: 14px/1.6 var(--mono); tab-size: 4; white-space: pre; color: var(--ink);
+  }
+  .sx-kw { color: var(--sx-kw); } .sx-fn { color: var(--sx-fn); } .sx-str { color: var(--sx-str); }
+  .sx-num { color: var(--sx-num); } .sx-com { color: var(--sx-com); font-style: italic; }
   .statusbar {
     display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px;
     padding: 9px 14px;
@@ -372,7 +391,10 @@
         <span class="spacer"></span>
         <button id="run" class="btn primary" disabled>Run ▸</button>
       </div>
-      <textarea id="sql" spellcheck="false" aria-label="SQL editor">SELECT COUNT(*) AS row_count FROM source.sales_order_line;</textarea>
+      <div class="code">
+        <pre id="sql-hl" aria-hidden="true"></pre>
+        <textarea id="sql" spellcheck="false" aria-label="SQL editor">SELECT COUNT(*) AS row_count FROM source.sales_order_line;</textarea>
+      </div>
       <div class="statusbar">
         <span id="status" class="busy">Loading DuckDB...</span>
         <span class="chip">DuckDB-WASM</span>
@@ -852,6 +874,7 @@ async function tableBytes(schema, table, rows, cols) {
 }
 
 const openNodes = new Set(["s:silver"]);
+const closedGroups = new Set();
 
 // DuckDB stores CREATE TABLE on one line: put each column on its own line. Views keep their own text.
 function fmtDdl(sql) {
@@ -879,6 +902,10 @@ async function refreshTables() {
     `SELECT schema_name, view_name, sql FROM duckdb_views() WHERE NOT internal AND ${db}`)).toArray();
   const schemaRows = (await conn.query(
     `SELECT schema_name FROM duckdb_schemas() WHERE NOT internal AND ${db}`)).toArray();
+  // DuckDB has no stored procedures; macros (CREATE MACRO) are the closest, so they fill the Procedures group
+  const macros = (await conn.query(
+    `SELECT schema_name, function_name, function_type, parameters, macro_definition FROM duckdb_functions() ` +
+    `WHERE NOT internal AND function_type IN ('macro', 'table_macro') AND ${db}`)).toArray();
   const columns = (await conn.query(
     `SELECT schema_name, table_name, column_name, data_type FROM duckdb_columns() WHERE ${db} ` +
     "ORDER BY schema_name, table_name, column_index")).toArray();
@@ -896,6 +923,12 @@ async function refreshTables() {
     (by[t.schema_name] ??= []).push({ name: t.table_name, rows, bytes, cols, sql: t.sql });
   }
   for (const v of views) (by[v.schema_name] ??= []).push({ name: v.view_name, view: true, cols: colsOf[`${v.schema_name}.${v.view_name}`] ?? [], sql: v.sql });
+  for (const m of macros) {
+    const params = [...(m.parameters?.toArray?.() ?? m.parameters ?? [])].join(", ");
+    const table = m.function_type === "table_macro";
+    (by[m.schema_name] ??= []).push({ name: m.function_name, proc: true, params, table,
+      sql: `CREATE MACRO ${m.schema_name}.${m.function_name}(${params}) AS ${table ? "TABLE " : ""}${m.macro_definition};` });
+  }
   for (const r of schemaRows) by[r.schema_name] ??= [];  // a new schema has no tables yet, list it anyway
 
   const rank = (s) => { const i = LAYER_ORDER.indexOf(s); return i === -1 ? 99 : i; };
@@ -905,26 +938,46 @@ async function refreshTables() {
     const items = by[s].sort((a, b) => a.name.localeCompare(b.name));
     const bytes = items.reduce((n, t) => n + (t.bytes ?? 0), 0);
     total += bytes;
-    const inner = items.map((t) => {
+    const item = (t) => {
+      const key = `t:${s}.${t.name}`;
+      if (t.proc) {
+        return `<details class="tbl" data-key="${esc(key)}" ${openNodes.has(key) ? "open" : ""}>` +
+          `<summary title="${esc(`${s}.${t.name}`)}"><span class="name">${esc(t.name)}(${esc(t.params)})</span>` +
+          `<span class="meta"><span class="tag">${t.table ? "table macro" : "macro"}</span></span></summary>` +
+          `<div class="ddl"><pre class="wrap">${esc(t.sql)}</pre></div></details>`;
+      }
       const meta = t.view
         ? `<span class="tag">view</span>`
         : `${fmtInt(t.rows)} rows${t.bytes === null ? "" : ` · ${fmtBytes(t.bytes)}`}`;
       const k = keyInfo(`${s}.${t.name}`);
       const cols = t.cols.map((c) => `<div class="col"><span>${esc(c.name)}</span>${k.tags(c.name)}<span class="type">${esc(c.type)}</span></div>`).join("");
       const note = k.comment ? `<div class="tbl-note">${esc(k.comment)}</div>` : "";
-      const key = `t:${s}.${t.name}`;
       const ddlKey = `d:${s}.${t.name}`;
       const ddl = t.sql ? `<details class="ddl" data-key="${esc(ddlKey)}" ${openNodes.has(ddlKey) ? "open" : ""}><summary>DDL</summary><pre>${esc(fmtDdl(t.sql))}</pre></details>` : "";
       return `<details class="tbl" data-key="${esc(key)}" ${openNodes.has(key) ? "open" : ""}>` +
         `<summary title="${esc(k.comment || `${s}.${t.name}`)}"><span class="name">${esc(t.name)}</span><span class="meta">${meta}</span></summary>${note}${cols}${ddl}</details>`;
-    }).join("");
+    };
+    const group = (label, list, hint) => {
+      const key = `g:${s}.${label}`;
+      return `<details class="grp" data-key="${esc(key)}" ${closedGroups.has(key) ? "" : "open"}>` +
+        `<summary>${label}<span class="meta">${list.length}</span></summary>` +
+        (list.length ? list.map(item).join("") : `<div class="grp-empty">${hint}</div>`) + "</details>";
+    };
+    const inner = group("Tables", items.filter((t) => !t.view && !t.proc), "None yet: CREATE TABLE") +
+      group("Views", items.filter((t) => t.view), "None yet: CREATE VIEW name AS SELECT ...") +
+      group("Procedures", items.filter((t) => t.proc),
+        "None yet. DuckDB has no stored procedures: CREATE MACRO name(x) AS ... is the closest");
     const key = `s:${s}`;
     return `<details class="schema" data-key="${esc(key)}" ${openNodes.has(key) ? "open" : ""}>` +
       `<summary>${esc(s)}<span class="meta">${items.length ? `${items.length} ${items.length === 1 ? "object" : "objects"} · ${fmtBytes(bytes)}` : "empty"}</span></summary>${inner}</details>`;
   }).join("") + `<p class="size-note">Size = rows × row width, uncompressed. DuckDB compresses most columns, so real memory use is lower.</p>`
     : "<p>No tables yet.</p>";
   for (const d of $("tables").querySelectorAll("details")) {
-    d.addEventListener("toggle", () => (d.open ? openNodes.add(d.dataset.key) : openNodes.delete(d.dataset.key)));
+    const key = d.dataset.key;
+    d.addEventListener("toggle", () => {
+      if (key.startsWith("g:")) d.open ? closedGroups.delete(key) : closedGroups.add(key);  // groups start open
+      else d.open ? openNodes.add(key) : openNodes.delete(key);
+    });
   }
   $("mem").textContent = schemas.length ? `≈ ${fmtBytes(total)}` : "";
 
@@ -1143,6 +1196,9 @@ async function dropOwnObjects() {
   for (const s of schemas) await conn.query(`DROP SCHEMA ${ident(s.schema_name)} CASCADE`);
   const views = (await conn.query(`SELECT view_name FROM duckdb_views() WHERE NOT internal AND ${SP_OWN}`)).toArray();
   for (const v of views) await conn.query(`DROP VIEW IF EXISTS main.${ident(v.view_name)}`);
+  const macros = (await conn.query(`SELECT DISTINCT function_name, function_type FROM duckdb_functions() ` +
+    `WHERE NOT internal AND function_type IN ('macro', 'table_macro') AND ${SP_OWN}`)).toArray();
+  for (const m of macros) await conn.query(`DROP MACRO ${m.function_type === "table_macro" ? "TABLE " : ""}IF EXISTS main.${ident(m.function_name)}`);
   const tables = (await conn.query(`SELECT table_name FROM duckdb_tables() WHERE ${SP_OWN}`)).toArray();
   await inDependencyOrder(tables, (t) => conn.query(`DROP TABLE main.${ident(t.table_name)}`));
 }
@@ -1256,15 +1312,42 @@ let hasLayers = false;
 window.addEventListener("beforeunload", (e) => { if (hasLayers) { e.preventDefault(); e.returnValue = ""; } });
 
 // ---------------------------------------------------------------- editor
+// Colors the editor like VS Code: comments, strings, numbers, keywords, and names called as functions.
+const SQL_KEYWORDS = new Set(("SELECT FROM WHERE GROUP BY ORDER HAVING QUALIFY LIMIT OFFSET WITH AS ON USING JOIN INNER LEFT RIGHT " +
+  "FULL OUTER CROSS NATURAL UNION ALL INTERSECT EXCEPT DISTINCT AND OR NOT IN IS NULL LIKE ILIKE BETWEEN EXISTS CASE WHEN " +
+  "THEN ELSE END CREATE REPLACE TEMP TEMPORARY TABLE VIEW SCHEMA MACRO SEQUENCE INDEX IF INSERT INTO VALUES UPDATE SET " +
+  "DELETE DROP ALTER ADD COLUMN RENAME TO COMMENT CASCADE PRIMARY KEY FOREIGN REFERENCES UNIQUE CHECK DEFAULT CONSTRAINT " +
+  "OVER PARTITION ROWS RANGE PRECEDING FOLLOWING CURRENT ROW UNBOUNDED ASC DESC NULLS FIRST LAST TRUE FALSE CAST " +
+  "EXPLAIN ANALYZE DESCRIBE SUMMARIZE PIVOT UNPIVOT FILTER WINDOW RECURSIVE INTERVAL DATE TIMESTAMP INTEGER BIGINT " +
+  "SMALLINT TINYINT DOUBLE FLOAT DECIMAL NUMERIC VARCHAR TEXT BOOLEAN COPY ATTACH DETACH USE BEGIN COMMIT ROLLBACK").split(" "));
+const SQL_TOKEN = /(--[^\n]*|\/\*[\s\S]*?(?:\*\/|$))|('(?:[^']|'')*'?)|("(?:[^"]|"")*"?)|(\b\d+(?:\.\d+)?\b)|([A-Za-z_][A-Za-z0-9_]*)(?=(\s*\()?)/g;
+function highlightSql(text) {
+  let out = "", last = 0;
+  for (const m of text.matchAll(SQL_TOKEN)) {
+    const [tok, com, str, quoted, num, word, call] = m;
+    const cls = com ? "com" : str ? "str" : quoted ? null : num ? "num"
+      : SQL_KEYWORDS.has(word.toUpperCase()) ? "kw" : call ? "fn" : null;
+    out += esc(text.slice(last, m.index)) + (cls ? `<span class="sx-${cls}">${esc(tok)}</span>` : esc(tok));
+    last = m.index + tok.length;
+  }
+  return out + esc(text.slice(last));
+}
 const ta = $("sql");
 try { const saved = localStorage.getItem("ptxyz-sql"); if (saved) ta.value = saved; } catch {}
 ta.addEventListener("input", () => { try { localStorage.setItem("ptxyz-sql", ta.value); } catch {} });
+const hl = $("sql-hl");
+const paint = () => { hl.innerHTML = highlightSql(ta.value) + "\n"; syncScroll(); };
+const syncScroll = () => { hl.scrollTop = ta.scrollTop; hl.scrollLeft = ta.scrollLeft; };
+ta.addEventListener("input", paint);
+ta.addEventListener("scroll", syncScroll);
+paint();
 ta.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); runEditor(); }
   if (e.key === "Tab") {
     e.preventDefault();
     const s = ta.selectionStart;
     ta.setRangeText("    ", s, ta.selectionEnd, "end");
+    paint();
   }
 });
 $("run").onclick = runEditor;

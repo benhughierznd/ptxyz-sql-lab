@@ -206,6 +206,12 @@ SELECT * FROM lab.sales_line_by_sku ORDER BY sl_ship_date;
 
 CHECKPOINT;
 
+-- The random-number helpers are only for this build: drop them so the Schema panel shows
+-- the participants' own macros only.
+DROP MACRO rint;
+DROP MACRO rnd;
+DROP MACRO mix32;
+
 -- Quick check: compare with the scenario table in the Study Case.
 SELECT 'sales_order_line' AS table_name, COUNT(*) AS row_count FROM source.sales_order_line
 UNION ALL SELECT 'sales_order',       COUNT(*) FROM source.sales_order
