@@ -230,7 +230,20 @@
   button.tab:not(.active):hover { background: var(--soft); }
   button.tab:focus-visible { outline: 3px solid var(--yellow); outline-offset: -3px; }
   .tabs .spacer { flex: 1; }
-  .tabs .btn { margin: 6px; }
+  .sheets { display: flex; align-items: stretch; min-width: 0; overflow-x: auto; }
+  .sheet { display: flex; align-items: stretch; border-right: 2px solid var(--line); }
+  .sheet.active { background: var(--ink); color: var(--bg); }
+  .sheet button { background: none; color: inherit; border: 0; cursor: pointer; font: 500 13px var(--mono); letter-spacing: .04em; }
+  .sheet-open { padding: 0 6px 0 16px; text-transform: uppercase; white-space: nowrap; }
+  .sheet:not(:has(.sheet-close)) .sheet-open { padding-right: 16px; }
+  .sheet-close { padding: 0 10px 0 4px; font-size: 16px !important; opacity: .6; }
+  .sheet-close:hover { opacity: 1; }
+  .sheet:not(.active):hover { background: var(--soft); }
+  .sheet-add { background: none; color: inherit; border: 0; border-right: 2px solid var(--line); padding: 0 16px; font: 500 18px var(--mono); cursor: pointer; }
+  .sheet-add:hover:not(:disabled) { background: var(--soft); }
+  .sheet-add:disabled { opacity: .35; cursor: not-allowed; }
+  .sheet button:focus-visible, .sheet-add:focus-visible { outline: 3px solid var(--yellow); outline-offset: -3px; }
+  .tabs .btn { margin: 6px; flex: none; white-space: nowrap; }
   textarea {
     display: block;
     width: 100%;
@@ -387,7 +400,7 @@
   <div>
     <section class="window">
       <div class="tabs">
-        <span class="tab active">SQL</span>
+        <div id="sheets" class="sheets" role="tablist" aria-label="SQL sheets"></div>
         <span class="spacer"></span>
         <button id="run" class="btn primary" disabled>Run ▸</button>
       </div>
@@ -1343,9 +1356,73 @@ function highlightSql(text) {
   return out + esc(text.slice(last));
 }
 const ta = $("sql");
-try { const saved = localStorage.getItem("ptxyz-sql"); if (saved) ta.value = saved; } catch {}
-ta.addEventListener("input", () => { try { localStorage.setItem("ptxyz-sql", ta.value); } catch {} });
 const hl = $("sql-hl");
+
+// SQL sheets: up to 5 editors in tabs, kept in this browser. The editor text of the
+// single-sheet version (ptxyz-sql) becomes sheet 1.
+const MAX_SHEETS = 5;
+let sheets = [], active = 0;
+try {
+  const saved = JSON.parse(localStorage.getItem("ptxyz-sheets"));
+  if (Array.isArray(saved?.sheets) && saved.sheets.length) ({ sheets, active } = saved);
+} catch {}
+if (!sheets.length) {
+  let sql = ta.value;
+  try { sql = localStorage.getItem("ptxyz-sql") ?? sql; } catch {}
+  sheets = [{ sql }];
+}
+sheets = sheets.slice(0, MAX_SHEETS).map((x) => ({ sql: String(x.sql ?? "") }));
+active = Math.min(Math.max(Number(active) || 0, 0), sheets.length - 1);
+ta.value = sheets[active].sql;
+
+function saveSheets() {
+  sheets[active].sql = ta.value;
+  try { localStorage.setItem("ptxyz-sheets", JSON.stringify({ sheets: sheets.map(({ sql }) => ({ sql })), active })); } catch {}
+}
+function renderSheets() {
+  $("sheets").innerHTML = sheets.map((_, i) =>
+    `<span class="sheet${i === active ? " active" : ""}">` +
+    `<button class="sheet-open" role="tab" aria-selected="${i === active}" data-i="${i}">SQL ${i + 1}</button>` +
+    (sheets.length > 1 ? `<button class="sheet-close" data-close="${i}" aria-label="Close SQL ${i + 1}" title="Close">×</button>` : "") +
+    "</span>").join("") +
+    `<button class="sheet-add" id="sheet-add" ${sheets.length >= MAX_SHEETS ? "disabled" : ""} ` +
+    `title="${sheets.length >= MAX_SHEETS ? `At most ${MAX_SHEETS} sheets` : "New sheet"}" aria-label="New sheet">+</button>`;
+}
+function openSheet(i) {
+  saveSheets();
+  sheets[active].pos = [ta.selectionStart, ta.selectionEnd, ta.scrollTop];
+  loadSheet(i);
+}
+function loadSheet(i) {
+  active = i;
+  ta.value = sheets[i].sql;
+  const [a = 0, b = 0, top = 0] = sheets[i].pos ?? [];
+  ta.setSelectionRange(a, b);
+  ta.scrollTop = top;
+  paint();
+  saveSheets();
+  renderSheets();
+  $("sheets").querySelector(".sheet.active").scrollIntoView({ block: "nearest", inline: "nearest" });
+  ta.focus();
+}
+$("sheets").addEventListener("click", (e) => {
+  const open = e.target.closest("[data-i]"), close = e.target.closest("[data-close]");
+  if (open) openSheet(Number(open.dataset.i));
+  else if (close) {
+    const i = Number(close.dataset.close);
+    saveSheets();
+    if (sheets[i].sql.trim() && !confirm(`Close SQL ${i + 1}? Its text is deleted.`)) return;
+    const next = i < active ? active - 1 : Math.min(active, sheets.length - 2);
+    sheets.splice(i, 1);
+    loadSheet(next);
+  } else if (e.target.id === "sheet-add" && sheets.length < MAX_SHEETS) {
+    saveSheets();
+    sheets.push({ sql: "" });
+    openSheet(sheets.length - 1);
+  }
+});
+ta.addEventListener("input", saveSheets);
+renderSheets();
 const paint = () => { hl.innerHTML = highlightSql(ta.value) + "\n"; syncScroll(); };
 const syncScroll = () => { hl.scrollTop = ta.scrollTop; hl.scrollLeft = ta.scrollLeft; };
 ta.addEventListener("input", paint);
@@ -1359,6 +1436,7 @@ ta.addEventListener("keydown", (e) => {
     const s = ta.selectionStart;
     ta.setRangeText("    ", s, ta.selectionEnd, "end");
     paint();
+    saveSheets();
   }
 });
 $("run").onclick = runEditor;
