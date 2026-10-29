@@ -70,61 +70,12 @@
       "sk_sku_id"
     ]
   },
-  "gold.agg_sales_outlet_region_month": {
-    "comment": "Gold aggregate for the dashboard: one row per outlet region per month with net sales and number of sales lines.",
+  "gold.mart_sales_outlet_region_month": {
+    "comment": "Gold mart for the dashboard: one row per outlet region per month with net sales and number of sales lines.",
     "pk": [
       "region",
       "month_start"
     ]
-  },
-  "gold.dim_distributor": {
-    "comment": "Gold distributor dimension, SCD Type 2: one row per distributor version with valid_from, valid_to and is_current. Distributor 42 has two versions after its move to MAKASSAR, so distributor_id alone is not unique.",
-    "pk": [
-      "distributor_key"
-    ]
-  },
-  "gold.dim_outlet": {
-    "comment": "Gold outlet dimension: one row per outlet with surrogate key outlet_key, channel, area and region. Added in the Day 1 Case Study.",
-    "pk": [
-      "outlet_key"
-    ]
-  },
-  "gold.dim_sku": {
-    "comment": "Gold SKU dimension: one row per SKU with surrogate key sku_key, brand and segment. Segment is added in Lab 4 as a conformed-dimension extension.",
-    "pk": [
-      "sku_key"
-    ]
-  },
-  "gold.fact_order_fulfillment": {
-    "comment": "Gold accumulating snapshot fact: one row per order line with order, ship, promised and delivery dates, days from order to ship and a late-delivery flag.",
-    "pk": [
-      "order_id",
-      "line_no"
-    ]
-  },
-  "gold.fact_sales_line": {
-    "comment": "Gold transaction fact: one row per order line with dimension keys, quantity, gross, discount and net amount. The center of the star schema.",
-    "pk": [
-      "order_id",
-      "line_no"
-    ],
-    "fk": {
-      "outlet_key": "gold.dim_outlet.outlet_key",
-      "sku_key": "gold.dim_sku.sku_key",
-      "distributor_key": "gold.dim_distributor.distributor_key"
-    }
-  },
-  "gold.fact_stock_snapshot": {
-    "comment": "Gold periodic snapshot fact: one row per SKU per distributor per snapshot date with stock in slof and unit cost. Stock is semi-additive, so never sum it across dates.",
-    "pk": [
-      "snapshot_date",
-      "sku_key",
-      "distributor_key"
-    ],
-    "fk": {
-      "sku_key": "gold.dim_sku.sku_key",
-      "distributor_key": "gold.dim_distributor.distributor_key"
-    }
   },
   "lab.sales_line_by_date": {
     "comment": "Same 6 million rows as lab.sales_line_by_sku, but loaded in ship date order so date filters can skip row groups in the Lab 7 pruning exercise.",
@@ -150,7 +101,7 @@
       "sku_key"
     ],
     "fk": {
-      "sku_key": "gold.dim_sku.sku_key",
+      "sku_key": "silver.dim_sku.sku_key",
       "brand_key": "sandbox.dim_brand.brand_key"
     }
   },
@@ -165,57 +116,65 @@
     "comment": "Intentionally broken exercise table for January 2025 sales: order-line rows mixed with daily total rows (order id and line NULL), so summing amount double counts. Mixed grain, so it has no primary key."
   },
   "sandbox.stock_two_days": {
-    "comment": "Exercise table: gold.fact_stock_snapshot copied for a second (previous) day, one row per SKU per distributor per date. Used to show why summing stock across days is wrong.",
+    "comment": "Exercise table: silver.fact_stock_snapshot copied for a second (previous) day, one row per SKU per distributor per date. Used to show why summing stock across days is wrong.",
     "pk": [
       "snapshot_date",
       "sku_key",
       "distributor_key"
     ],
     "fk": {
-      "sku_key": "gold.dim_sku.sku_key",
-      "distributor_key": "gold.dim_distributor.distributor_key"
+      "sku_key": "silver.dim_sku.sku_key",
+      "distributor_key": "silver.dim_distributor.distributor_key"
     }
   },
-  "silver.distributor": {
-    "comment": "One row per distributor, cleaned from bronze: clean column names with area and region names resolved.",
+  "silver.dim_distributor": {
+    "comment": "Silver distributor dimension, SCD Type 2: one row per distributor version with valid_from, valid_to and is_current. Distributor 42 has two versions after its move to MAKASSAR, so distributor_id alone is not unique.",
     "pk": [
-      "distributor_id"
+      "distributor_key"
     ]
   },
-  "silver.distributor_stock": {
-    "comment": "One row per SKU per distributor with current stock in slof and unit cost, cleaned from bronze.",
+  "silver.dim_outlet": {
+    "comment": "Silver outlet dimension: one row per outlet with surrogate key outlet_key, channel, area and region. Added in the Day 1 Case Study.",
     "pk": [
-      "sku_id",
-      "distributor_id"
-    ],
-    "fk": {
-      "sku_id": "silver.sku.sku_id",
-      "distributor_id": "silver.distributor.distributor_id"
-    }
-  },
-  "silver.outlet": {
-    "comment": "One row per outlet, cleaned from bronze: clean column names with area and region names resolved.",
-    "pk": [
-      "outlet_id"
+      "outlet_key"
     ]
   },
-  "silver.sales_line": {
-    "comment": "One row per order line, joined to its order header, deduplicated to the latest load, with net_amount (after discount, before excise and VAT). Source for the gold facts.",
+  "silver.dim_sku": {
+    "comment": "Silver SKU dimension: one row per SKU with surrogate key sku_key, brand and segment. Segment is added in the Day 1 Case Study as a conformed-dimension extension.",
+    "pk": [
+      "sku_key"
+    ]
+  },
+  "silver.fact_order_fulfillment": {
+    "comment": "Silver accumulating snapshot fact: one row per order line with order, ship, promised and delivery dates, days from order to ship and a late-delivery flag.",
+    "pk": [
+      "order_id",
+      "line_no"
+    ]
+  },
+  "silver.fact_sales_line": {
+    "comment": "Silver transaction fact: one row per order line with dimension keys, quantity, gross, discount and net amount. The center of the star schema.",
     "pk": [
       "order_id",
       "line_no"
     ],
     "fk": {
-      "outlet_id": "silver.outlet.outlet_id",
-      "sku_id": "silver.sku.sku_id",
-      "distributor_id": "silver.distributor.distributor_id"
+      "outlet_key": "silver.dim_outlet.outlet_key",
+      "sku_key": "silver.dim_sku.sku_key",
+      "distributor_key": "silver.dim_distributor.distributor_key"
     }
   },
-  "silver.sku": {
-    "comment": "One row per SKU, cleaned from bronze: SKU name, brand and segment with clean column names.",
+  "silver.fact_stock_snapshot": {
+    "comment": "Silver periodic snapshot fact: one row per SKU per distributor per snapshot date with stock in slof and unit cost. Stock is semi-additive, so never sum it across dates.",
     "pk": [
-      "sku_id"
-    ]
+      "snapshot_date",
+      "sku_key",
+      "distributor_key"
+    ],
+    "fk": {
+      "sku_key": "silver.dim_sku.sku_key",
+      "distributor_key": "silver.dim_distributor.distributor_key"
+    }
   },
   "source.area": {
     "comment": "One row per sales area (25 areas, 5 per region, e.g. MEDAN, SURABAYA). Links outlets and distributors to a region.",
@@ -244,6 +203,18 @@
     "fk": {
       "st_sku_id": "source.sku.sk_sku_id",
       "st_distributor_id": "source.distributor.dt_distributor_id"
+    }
+  },
+  "source.distributor_stock_daily": {
+    "comment": "One row per SKU per distributor per day: the stock in slof at the end of that day, for the last 365 days (2,920,000 rows). A daily snapshot: never sum stock across days.",
+    "pk": [
+      "sd_snapshot_date",
+      "sd_sku_id",
+      "sd_distributor_id"
+    ],
+    "fk": {
+      "sd_sku_id": "source.sku.sk_sku_id",
+      "sd_distributor_id": "source.distributor.dt_distributor_id"
     }
   },
   "source.outlet": {

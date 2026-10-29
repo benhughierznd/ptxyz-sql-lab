@@ -120,6 +120,21 @@ SELECT
 FROM source.sku s, range(0, 4) r(j);
 
 -- -----------------------------------------------------------------------------
+-- distributor_stock_daily: the stock of every SKU at every distributor at the end
+-- of each day, for the 365 days up to 2 August 2025 (2,920,000 rows)
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE TABLE source.distributor_stock_daily AS
+SELECT
+    DATE '2025-08-02' - d::INTEGER                                     AS sd_snapshot_date,
+    st.st_sku_id                                                       AS sd_sku_id,
+    st.st_distributor_id                                               AS sd_distributor_id,
+    -- today's stock, moved up or down by up to 20% on each day
+    CAST(st.st_stock_slof
+         * (80 + rint(st.st_sku_id * 4000 + st.st_distributor_id * 400 + d, 23, 0, 40))
+         / 100 AS INTEGER)                                             AS sd_stock_slof
+FROM source.distributor_stock st, range(0, 365) r(d);
+
+-- -----------------------------------------------------------------------------
 -- sales_order_line: 1 to 7 lines per order (about 4 on average)
 -- Orders run from 1 January 2019 to 2 August 2025, so 2025 is a partial year.
 -- Quantities are in slof (1 slof = 10 packs).
@@ -219,5 +234,6 @@ UNION ALL SELECT 'outlet',            COUNT(*) FROM source.outlet
 UNION ALL SELECT 'sku',               COUNT(*) FROM source.sku
 UNION ALL SELECT 'distributor',       COUNT(*) FROM source.distributor
 UNION ALL SELECT 'distributor_stock', COUNT(*) FROM source.distributor_stock
+UNION ALL SELECT 'distributor_stock_daily', COUNT(*) FROM source.distributor_stock_daily
 UNION ALL SELECT 'area',              COUNT(*) FROM source.area
 UNION ALL SELECT 'region',            COUNT(*) FROM source.region;

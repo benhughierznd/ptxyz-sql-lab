@@ -513,16 +513,19 @@ function stripComments(s) {
 // number the DuckDB CLI timer and EXPLAIN ANALYZE show). Other statements are only timed.
 async function runProfiled(sql) {
   const body = stripComments(sql);
-  const t0 = performance.now();
-  const table = await conn.query(sql);
-  const wall = (performance.now() - t0) / 1000;
   const explain = /^EXPLAIN\s+(ANALYZE\s+)?(?!\()/i.exec(body);  // a plain EXPLAIN [ANALYZE], no options
+  // EXPLAIN ANALYZE runs the query, so run it once, as JSON: a slow query must not run twice.
+  const analyzeOnce = explain && explain[1] ? `EXPLAIN (ANALYZE, FORMAT JSON) ${body.slice(explain[0].length)}` : null;
+  const t0 = performance.now();
+  const table = await conn.query(analyzeOnce || sql);
+  const wall = (performance.now() - t0) / 1000;
   if (explain) {
-    // The same plan as JSON, drawn as numbered steps. EXPLAIN ANALYZE runs the query a second time for it.
+    // The same plan as JSON, drawn as numbered steps.
     try {
       const query = body.slice(explain[0].length);
-      const json = (await conn.query(`EXPLAIN (${explain[1] ? "ANALYZE, " : ""}FORMAT JSON) ${query}`)).toArray()[0];
-      const plan = { analyze: !!explain[1], json: JSON.parse(json.explain_value) };
+      const json = analyzeOnce ? table.toArray()[0]
+        : (await conn.query(`EXPLAIN (FORMAT JSON) ${query}`)).toArray()[0];
+      const plan = { analyze: !!explain[1], json: JSON.parse(json.explain_value), jsonOnly: !!analyzeOnce };
       planOf.set(table, plan);
       if (READ_ONLY.test(query)) {
         // Snowflake prunes partitions at compile time; DuckDB skips row groups while it runs,
@@ -740,7 +743,7 @@ function renderTable(table) {
     box.innerHTML = `<div class="plan-switch" role="tablist">` +
       `<button data-plan="table" role="tab">Snowflake table</button><button data-plan="steps" role="tab">Steps, explained</button></div>` +
       `<div data-pane="table">${planTable(plan)}</div><div data-pane="steps">${planSteps(plan)}</div>` +
-      `<details class="plan-raw"><summary>DuckDB text plan (read from the bottom up)</summary>${raw}</details>`;
+      (plan.jsonOnly ? "" : `<details class="plan-raw"><summary>DuckDB text plan (read from the bottom up)</summary>${raw}</details>`);
     const show = (v) => {
       for (const b of box.querySelectorAll("[data-plan]")) b.setAttribute("aria-selected", b.dataset.plan === v);
       for (const d of box.querySelectorAll("[data-pane]")) d.hidden = d.dataset.pane !== v;
